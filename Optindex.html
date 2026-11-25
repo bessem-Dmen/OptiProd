@@ -1,0 +1,1780 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OptiProd MRP - Nomenclatures & Optimisation de Production</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome pour les icônes industrielles -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        /* Transitions douces pour les onglets et modales */
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.25s ease-in-out;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        /* Personnalisation scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="text-slate-800 antialiased min-h-screen flex flex-col">
+
+    <!-- Barre de Navigation Supérieure -->
+    <header class="bg-slate-900 text-white shadow-lg sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex flex-wrap justify-between items-center py-3 gap-3">
+                <div class="flex items-center space-x-3">
+                    <div class="bg-indigo-600 p-2 rounded-lg shadow-inner">
+                        <i class="fa-solid fa-industry text-xl text-white"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-lg sm:text-xl font-bold tracking-tight flex items-center gap-2">
+                            OptiProd <span class="text-xs font-semibold uppercase tracking-wider bg-indigo-500/30 text-indigo-200 px-2 py-0.5 rounded border border-indigo-400/30">MRP & BOM</span>
+                        </h1>
+                        <p class="text-xs text-slate-400 hidden sm:block">Calcul des besoins matières & Optimisation sous contraintes</p>
+                    </div>
+                </div>
+
+                <!-- Actions globales -->
+                <div class="flex items-center space-x-2">
+                    <button onclick="exportAllDataCSV()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-medium px-3 py-2 rounded-lg border border-slate-700 transition flex items-center gap-2">
+                        <i class="fa-solid fa-file-csv text-emerald-400"></i>
+                        <span class="hidden md:inline">Exporter Données</span>
+                    </button>
+                    <button onclick="confirmResetData()" class="bg-slate-800 hover:bg-rose-950/60 text-slate-300 hover:text-rose-200 text-xs sm:text-sm font-medium px-3 py-2 rounded-lg border border-slate-700 hover:border-rose-800 transition flex items-center gap-2" title="Réinitialiser avec les données d'exemple">
+                        <i class="fa-solid fa-rotate-left text-amber-400"></i>
+                        <span class="hidden md:inline">Réinitialiser Exemple</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Navigation par Onglets -->
+            <nav class="flex space-x-1 overflow-x-auto pb-0 pt-1 border-t border-slate-800" id="main-tabs">
+                <button onclick="switchTab('tab-items')" data-tab="tab-items" class="tab-btn active whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 border-indigo-500 text-white flex items-center gap-2 transition">
+                    <i class="fa-solid fa-boxes-stacked text-indigo-400"></i>
+                    <span>1. Articles & Stocks</span>
+                    <span id="badge-items-count" class="bg-slate-800 text-slate-300 text-xs px-2 py-0.5 rounded-full">0</span>
+                </button>
+                <button onclick="switchTab('tab-bom')" data-tab="tab-bom" class="tab-btn whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition">
+                    <i class="fa-solid fa-sitemap text-sky-400"></i>
+                    <span>2. Nomenclatures (Recettes)</span>
+                </button>
+                <button onclick="switchTab('tab-mrp')" data-tab="tab-mrp" class="tab-btn whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition">
+                    <i class="fa-solid fa-calculator text-emerald-400"></i>
+                    <span>3. Production &rarr; Besoins (MRP)</span>
+                </button>
+                <button onclick="switchTab('tab-opt')" data-tab="tab-opt" class="tab-btn whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition">
+                    <i class="fa-solid fa-wand-magic-sparkles text-amber-400"></i>
+                    <span>4. Stocks &rarr; Meilleure Combinaison</span>
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Zone de Notification Toast (remplace alert) -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- Contenu Principal -->
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+        <!-- ===================================================================== -->
+        <!-- ONGLET 1 : ARTICLES & STOCKS                                          -->
+        <!-- ===================================================================== -->
+        <section id="tab-items" class="tab-content active space-y-6">
+            <!-- Cartes KPI -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4" id="kpi-cards">
+                <!-- Généré dynamiquement -->
+            </div>
+
+            <!-- Barre d'outils & Filtres -->
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
+                <div class="flex flex-wrap items-center gap-2">
+                    <button onclick="filterItems('ALL')" class="filter-cat-btn active px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-white transition" data-cat="ALL">Tous</button>
+                    <button onclick="filterItems('MP')" class="filter-cat-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition" data-cat="MP">Matières Premières (MP)</button>
+                    <button onclick="filterItems('EMB')" class="filter-cat-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition" data-cat="EMB">Emballages (EMB)</button>
+                    <button onclick="filterItems('SF')" class="filter-cat-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition" data-cat="SF">Semi-Finis (SF)</button>
+                    <button onclick="filterItems('PF')" class="filter-cat-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition" data-cat="PF">Produits Finis (PF)</button>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <div class="relative flex-grow sm:flex-grow-0">
+                        <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                        <input type="text" id="search-item-input" oninput="renderItemsTable()" placeholder="Rechercher code ou nom..." class="pl-8 pr-3 py-2 w-full sm:w-56 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none">
+                    </div>
+                    <button onclick="openItemModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition flex items-center gap-2 whitespace-nowrap">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>Nouvel Article</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tableau des Articles -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                <th class="py-3.5 px-4">Code</th>
+                                <th class="py-3.5 px-4">Désignation</th>
+                                <th class="py-3.5 px-4">Catégorie</th>
+                                <th class="py-3.5 px-4 text-right">Stock Disponible</th>
+                                <th class="py-3.5 px-4">Unité</th>
+                                <th class="py-3.5 px-4 text-right">Valeur / Marge Unit.</th>
+                                <th class="py-3.5 px-4 text-right">Valorisation Stock</th>
+                                <th class="py-3.5 px-4 text-center">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="items-table-body" class="divide-y divide-slate-100 text-sm">
+                            <!-- Rempli par JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================================================================== -->
+        <!-- ONGLET 2 : NOMENCLATURES (BOM MULTI-NIVEAUX)                          -->
+        <!-- ===================================================================== -->
+        <section id="tab-bom" class="tab-content space-y-6">
+            <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex items-start gap-3">
+                <i class="fa-solid fa-circle-info text-indigo-600 mt-0.5 text-lg"></i>
+                <div class="text-sm text-indigo-900">
+                    <p class="font-semibold">Nomenclatures Multi-Niveaux (Bill of Materials)</p>
+                    <p class="text-indigo-700 mt-0.5">Définissez ici la recette pour fabriquer <strong>1 unité</strong> de chaque Produit Semi-Fini (SF) ou Produit Fini (PF). Lorsqu'un Produit Fini consomme un Semi-Fini, le système éclatera automatiquement les besoins en matières premières sous-jacentes.</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <!-- Colonne Gauche : Liste des Produits Finis & Semi-Finis -->
+                <div class="lg:col-span-4 space-y-4">
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center justify-between">
+                            <span>Produits Finis (PF)</span>
+                            <span class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-[11px]" id="count-pf-bom">0</span>
+                        </h3>
+                        <div id="bom-pf-list" class="space-y-2">
+                            <!-- Liste PF -->
+                        </div>
+
+                        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mt-6 mb-3 flex items-center justify-between">
+                            <span>Produits Semi-Finis (SF)</span>
+                            <span class="bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full text-[11px]" id="count-sf-bom">0</span>
+                        </h3>
+                        <div id="bom-sf-list" class="space-y-2">
+                            <!-- Liste SF -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Colonne Droite : Éditeur de Recette -->
+                <div class="lg:col-span-8">
+                    <div id="bom-editor-container" class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                        <!-- Contenu généré dynamiquement selon le produit sélectionné -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================================================================== -->
+        <!-- ONGLET 3 : CALCUL DES BESOINS (PRODUCTION -> BESOINS MRP)             -->
+        <!-- ===================================================================== -->
+        <section id="tab-mrp" class="tab-content space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <!-- Saisie du Plan de Production -->
+                <div class="lg:col-span-5 space-y-4">
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-800">Plan de Production Souhaité</h2>
+                                <p class="text-xs text-slate-500">Entrez les quantités de Produits Finis à fabriquer</p>
+                            </div>
+                            <button onclick="clearMrpInputs()" class="text-xs text-slate-500 hover:text-indigo-600 font-medium underline">Tout remettre à 0</button>
+                        </div>
+
+                        <div id="mrp-inputs-list" class="space-y-3">
+                            <!-- Champs de saisie pour P1, P2, P3... -->
+                        </div>
+
+                        <div class="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between gap-2">
+                            <label class="flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none">
+                                <input type="checkbox" id="mrp-use-sf-stock" checked onchange="calculateMRP()" class="rounded text-indigo-600 focus:ring-indigo-500">
+                                <span>Utiliser d'abord le stock de Semi-Finis existant</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Résumé Semi-Finis intermédiaires -->
+                    <div id="mrp-sf-summary-card" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hidden">
+                        <h3 class="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                            <i class="fa-solid fa-layer-group text-sky-500"></i>
+                            <span>Bilan des Semi-Finis Intermédiaires</span>
+                        </h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-xs text-left">
+                                <thead>
+                                    <tr class="border-b border-slate-200 text-slate-500">
+                                        <th class="py-2">Semi-Fini</th>
+                                        <th class="py-2 text-right">Besoin Total</th>
+                                        <th class="py-2 text-right">Stock SF</th>
+                                        <th class="py-2 text-right">À Fabriquer</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="mrp-sf-table-body" class="divide-y divide-slate-100"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Résultats des Besoins Globaux -->
+                <div class="lg:col-span-7 space-y-4">
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-800">Consommation Globale & Disponibilité Stock</h2>
+                                <p class="text-xs text-slate-500">Éclatement multi-niveaux complet (MP + Emballages)</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span id="mrp-status-badge" class="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                    Production Réalisable
+                                </span>
+                                <button onclick="exportMrpCSV()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1.5">
+                                    <i class="fa-solid fa-download"></i> CSV
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Synthèse financière / volumétrique -->
+                        <div id="mrp-kpi-bar" class="grid grid-cols-3 gap-3 mb-5">
+                            <!-- Généré par JS -->
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse text-sm">
+                                <thead>
+                                    <tr class="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase">
+                                        <th class="py-3 px-3">Composant</th>
+                                        <th class="py-3 px-3">Cat.</th>
+                                        <th class="py-3 px-3 text-right">Besoin Total</th>
+                                        <th class="py-3 px-3 text-right">Stock Actuel</th>
+                                        <th class="py-3 px-3 text-right">Solde / Manquant</th>
+                                        <th class="py-3 px-3 text-center">Statut</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="mrp-results-body" class="divide-y divide-slate-100">
+                                    <!-- Rempli dynamiquement -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================================================================== -->
+        <!-- ONGLET 4 : OPTIMISATION (STOCKS -> MEILLEURE COMBINAISON)             -->
+        <!-- ===================================================================== -->
+        <section id="tab-opt" class="tab-content space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <!-- Configuration du Solveur -->
+                <div class="lg:col-span-5 space-y-4">
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                        <h2 class="text-base font-bold text-slate-800 mb-1">Paramètres d'Optimisation</h2>
+                        <p class="text-xs text-slate-500 mb-4">Trouvez la combinaison optimale de Produits Finis réalisable avec vos stocks actuels.</p>
+
+                        <!-- Objectif d'optimisation -->
+                        <div class="mb-4">
+                            <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">Objectif de l'algorithme</label>
+                            <select id="opt-objective" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2.5 bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
+                                <option value="MAX_UNITS">Maximiser le nombre total d'unités produites</option>
+                                <option value="MAX_VALUE">Maximiser la valeur / marge totale générée</option>
+                                <option value="BALANCED">Production équilibrée (répartition homogène entre produits)</option>
+                                <option value="PRIORITY_WEIGHTED">Maximiser selon les poids / priorités définis</option>
+                            </select>
+                        </div>
+
+                        <!-- Option utilisation SF -->
+                        <div class="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200/80">
+                            <label class="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                                <input type="checkbox" id="opt-use-sf-stock" checked class="rounded text-indigo-600 focus:ring-indigo-500">
+                                <span>Inclure les stocks existants de Semi-Finis (SF)</span>
+                            </label>
+                        </div>
+
+                        <!-- Sélection des produits et contraintes Min / Max / Priorité -->
+                        <div class="mb-4">
+                            <div class="flex justify-between items-center mb-2">
+                                <label class="text-xs font-semibold text-slate-700 uppercase tracking-wider">Produits candidats & Contraintes</label>
+                                <span class="text-[11px] text-slate-400">Min / Max / Poids</span>
+                            </div>
+                            <div id="opt-products-list" class="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                                <!-- Généré par JS -->
+                            </div>
+                        </div>
+
+                        <button onclick="runOptimization()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-xl shadow-md hover:shadow-lg transition flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-bolt text-amber-300"></i>
+                            <span>Calculer la Meilleure Combinaison</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Résultats de l'Optimisation -->
+                <div class="lg:col-span-7 space-y-4">
+                    <div id="opt-results-panel" class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                        <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+                            <div>
+                                <h2 class="text-base font-bold text-slate-800">Combinaison Optimale Recommandée</h2>
+                                <p class="text-xs text-slate-500" id="opt-algo-info">Résolution exacte en nombres entiers (Programmation Linéaire / Branch & Bound)</p>
+                            </div>
+                            <button onclick="applyOptimalToMrp()" id="btn-apply-mrp" class="hidden bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
+                                <i class="fa-solid fa-arrow-right"></i>
+                                <span>Simuler dans MRP</span>
+                            </button>
+                        </div>
+
+                        <!-- Cartes des quantités optimales -->
+                        <div id="opt-best-combo-cards" class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+                            <!-- Rempli après calcul -->
+                        </div>
+
+                        <!-- Analyse des Goulots d'Étranglement & Utilisation des Stocks -->
+                        <div class="border-t border-slate-100 pt-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                    <i class="fa-solid fa-gauge-high text-amber-500"></i>
+                                    <span>Taux d'Utilisation des Stocks & Goulots d'Étranglement</span>
+                                </h3>
+                                <span class="text-xs text-slate-400">Trié par saturation</span>
+                            </div>
+                            <div id="opt-bottlenecks-list" class="space-y-3">
+                                <!-- Barres de progression d'utilisation des matières -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ===================================================================== -->
+    <!-- MODALE : AJOUT / MODIFICATION D'ARTICLE                               -->
+    <!-- ===================================================================== -->
+    <div id="item-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200 animate-[fadeIn_0.2s_ease-out]">
+            <div class="px-6 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                <h3 id="item-modal-title" class="font-bold text-slate-800">Ajouter un Article</h3>
+                <button onclick="closeItemModal()" class="text-slate-400 hover:text-slate-600 p-1">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            <form id="item-form" onsubmit="saveItem(event)" class="p-6 space-y-4">
+                <input type="hidden" id="item-edit-original-code">
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Code / ID *</label>
+                        <input type="text" id="item-code" required placeholder="ex: M4, P4..." class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 uppercase focus:ring-2 focus:ring-indigo-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Catégorie *</label>
+                        <select id="item-category" required class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <option value="MP">Matière Première (MP)</option>
+                            <option value="EMB">Emballage (EMB)</option>
+                            <option value="SF">Semi-Fini (SF)</option>
+                            <option value="PF">Produit Fini (PF)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Désignation / Nom *</label>
+                    <input type="text" id="item-name" required placeholder="ex: Principe Actif M4, Flacon 100ml..." class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none">
+                </div>
+
+                <div class="grid grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Stock Actuel *</label>
+                        <input type="number" id="item-stock" step="any" min="0" required value="0" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Unité *</label>
+                        <select id="item-unit" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <option value="g">g (grammes)</option>
+                            <option value="kg">kg (kilogrammes)</option>
+                            <option value="ml">ml (millilitres)</option>
+                            <option value="L">L (litres)</option>
+                            <option value="unité">unité</option>
+                            <option value="m">m (mètres)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Prix / Marge (€)</label>
+                        <input type="number" id="item-price" step="any" min="0" value="1" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none">
+                    </div>
+                </div>
+
+                <div class="pt-3 border-t border-slate-100 flex justify-end gap-2">
+                    <button type="button" onclick="closeItemModal()" class="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition">Annuler</button>
+                    <button type="submit" class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition">Enregistrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODALE DE CONFIRMATION PERSONNALISÉE (Remplace confirm())             -->
+    <!-- ===================================================================== -->
+    <div id="confirm-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-slate-200">
+            <div class="flex items-center gap-3 text-amber-600 mb-3">
+                <i class="fa-solid fa-triangle-exclamation text-2xl"></i>
+                <h3 id="confirm-title" class="font-bold text-slate-800 text-base">Confirmation</h3>
+            </div>
+            <p id="confirm-message" class="text-sm text-slate-600 mb-5">Êtes-vous sûr de vouloir effectuer cette action ?</p>
+            <div class="flex justify-end gap-2">
+                <button onclick="closeConfirmModal()" class="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition">Annuler</button>
+                <button id="confirm-yes-btn" class="px-4 py-2 text-sm font-medium text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-sm transition">Confirmer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- SCRIPT LOGIQUE MÉTIER, MRP & SOLVEUR D'OPTIMISATION                   -->
+    <!-- ===================================================================== -->
+    <script>
+        // =========================================================================
+        // 1. DONNÉES INITIALES & ÉTAT DE L'APPLICATION
+        // =========================================================================
+        const STORAGE_KEY = 'optiprod_mrp_data_v1';
+
+        const DEFAULT_DATA = {
+            items: [
+                // Matières Premières (MP)
+                { code: 'M1', name: 'Matière Première Base M1', category: 'MP', stock: 1200, unit: 'g', price: 0.15 },
+                { code: 'M2', name: 'Additif Actif M2', category: 'MP', stock: 450, unit: 'g', price: 0.45 },
+                { code: 'M3', name: 'Composant Concentré M3', category: 'MP', stock: 950, unit: 'g', price: 0.30 },
+                { code: 'M4', name: 'Arôme / Stabilisant M4', category: 'MP', stock: 600, unit: 'g', price: 0.25 },
+                
+                // Emballages (EMB)
+                { code: 'E1', name: 'Emballage Standard E1 (Boîte + Étiquette)', category: 'EMB', stock: 1500, unit: 'unité', price: 0.50 },
+                { code: 'E2', name: 'Emballage Premium E2 (Coffret)', category: 'EMB', stock: 800, unit: 'unité', price: 1.20 },
+
+                // Produits Semi-Finis (SF)
+                { code: 'SF1', name: 'Mélange Intermédiaire SF1', category: 'SF', stock: 100, unit: 'unité', price: 2.50 },
+                { code: 'SF2', name: 'Base Pré-formulée SF2', category: 'SF', stock: 50, unit: 'unité', price: 3.10 },
+
+                // Produits Finis (PF)
+                { code: 'P1', name: 'Produit Fini P1 (Formule Classique)', category: 'PF', stock: 40, unit: 'unité', price: 12.00 },
+                { code: 'P2', name: 'Produit Fini P2 (Formule Intense)', category: 'PF', stock: 25, unit: 'unité', price: 16.50 },
+                { code: 'P3', name: 'Produit Fini P3 (Formule Éco)', category: 'PF', stock: 60, unit: 'unité', price: 9.50 }
+            ],
+            // Nomenclatures : clé = code du produit (PF ou SF), valeur = tableau d'ingrédients { itemCode, qty }
+            boms: {
+                // Sous-recette pour Semi-Fini SF1
+                'SF1': [
+                    { itemCode: 'M1', qty: 0.3 },
+                    { itemCode: 'M4', qty: 0.2 }
+                ],
+                // Sous-recette pour Semi-Fini SF2
+                'SF2': [
+                    { itemCode: 'M2', qty: 0.25 },
+                    { itemCode: 'M3', qty: 0.4 }
+                ],
+                // Exemple exact demandé par l'utilisateur pour P1 :
+                // 0.5g de M1, 0.2g de M2, 0.69g de M3, 1 unité d'emballage E1, 1 unité de semi-fini SF1
+                'P1': [
+                    { itemCode: 'M1', qty: 0.5 },
+                    { itemCode: 'M2', qty: 0.2 },
+                    { itemCode: 'M3', qty: 0.69 },
+                    { itemCode: 'E1', qty: 1 },
+                    { itemCode: 'SF1', qty: 1 }
+                ],
+                // Recette pour P2
+                'P2': [
+                    { itemCode: 'M1', qty: 0.8 },
+                    { itemCode: 'M3', qty: 0.5 },
+                    { itemCode: 'SF2', qty: 1 },
+                    { itemCode: 'E2', qty: 1 }
+                ],
+                // Recette pour P3
+                'P3': [
+                    { itemCode: 'M1', qty: 0.4 },
+                    { itemCode: 'M4', qty: 0.5 },
+                    { itemCode: 'E1', qty: 1 }
+                ]
+            },
+            // Plan MRP par défaut (ex: 500 unités de P1 comme dans l'exemple utilisateur)
+            mrpPlan: {
+                'P1': 500,
+                'P2': 0,
+                'P3': 0
+            }
+        };
+
+        let appState = {
+            items: [],
+            boms: {},
+            mrpPlan: {},
+            currentCatFilter: 'ALL',
+            selectedBomProduct: 'P1',
+            lastOptimalCombo: null
+        };
+
+        // =========================================================================
+        // 2. INITIALISATION & PERSISTANCE
+        // =========================================================================
+        function initApp() {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    appState.items = parsed.items || JSON.parse(JSON.stringify(DEFAULT_DATA.items));
+                    appState.boms = parsed.boms || JSON.parse(JSON.stringify(DEFAULT_DATA.boms));
+                    appState.mrpPlan = parsed.mrpPlan || JSON.parse(JSON.stringify(DEFAULT_DATA.mrpPlan));
+                } catch (e) {
+                    resetToDefault(false);
+                }
+            } else {
+                resetToDefault(false);
+            }
+
+            // Sélectionner le premier PF disponible pour l'éditeur BOM
+            const firstPf = appState.items.find(i => i.category === 'PF');
+            if (firstPf) appState.selectedBomProduct = firstPf.code;
+
+            renderAll();
+        }
+
+        function saveState() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                items: appState.items,
+                boms: appState.boms,
+                mrpPlan: appState.mrpPlan
+            }));
+        }
+
+        function resetToDefault(notify = true) {
+            appState.items = JSON.parse(JSON.stringify(DEFAULT_DATA.items));
+            appState.boms = JSON.parse(JSON.stringify(DEFAULT_DATA.boms));
+            appState.mrpPlan = JSON.parse(JSON.stringify(DEFAULT_DATA.mrpPlan));
+            appState.selectedBomProduct = 'P1';
+            saveState();
+            renderAll();
+            if (notify) showToast("Données d'exemple réinitialisées avec succès.", "info");
+        }
+
+        function confirmResetData() {
+            openConfirmModal(
+                "Réinitialiser les données",
+                "Toutes vos modifications seront remplacées par le jeu de données d'exemple (M1..M4, E1..E2, SF1..SF2, P1..P3). Continuer ?",
+                () => resetToDefault(true)
+            );
+        }
+
+        function renderAll() {
+            updateKpiCards();
+            renderItemsTable();
+            renderBomSidebar();
+            renderBomEditor();
+            renderMrpInputs();
+            calculateMRP();
+            renderOptProductList();
+            runOptimization();
+        }
+
+        // =========================================================================
+        // 3. UTILITAIRES UI (ONGLETS, TOASTS, MODALES, FORMATAGE)
+        // =========================================================================
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                if (btn.dataset.tab === tabId) {
+                    btn.classList.add('active', 'border-indigo-500', 'text-white');
+                    btn.classList.remove('border-transparent', 'text-slate-400');
+                } else {
+                    btn.classList.remove('active', 'border-indigo-500', 'text-white');
+                    btn.classList.add('border-transparent', 'text-slate-400');
+                }
+            });
+
+            // Rafraîchir les calculs lors du changement d'onglet
+            if (tabId === 'tab-mrp') {
+                renderMrpInputs();
+                calculateMRP();
+            } else if (tabId === 'tab-opt') {
+                renderOptProductList();
+            } else if (tabId === 'tab-bom') {
+                renderBomSidebar();
+                renderBomEditor();
+            }
+        }
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const colors = {
+                success: 'bg-emerald-600 text-white',
+                error: 'bg-rose-600 text-white',
+                info: 'bg-slate-800 text-white',
+                warning: 'bg-amber-500 text-white'
+            };
+            const icons = {
+                success: 'fa-circle-check',
+                error: 'fa-circle-exclamation',
+                info: 'fa-circle-info',
+                warning: 'fa-triangle-exclamation'
+            };
+
+            toast.className = `${colors[type] || colors.info} px-4 py-3 rounded-xl shadow-lg flex items-center gap-2.5 text-sm font-medium pointer-events-auto transition-all duration-300 transform translate-y-2 opacity-0`;
+            toast.innerHTML = `<i class="fa-solid ${icons[type]}"></i><span>${message}</span>`;
+            container.appendChild(toast);
+
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            });
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3200);
+        }
+
+        let confirmCallback = null;
+        function openConfirmModal(title, message, onConfirm) {
+            document.getElementById('confirm-title').textContent = title;
+            document.getElementById('confirm-message').textContent = message;
+            confirmCallback = onConfirm;
+            const modal = document.getElementById('confirm-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeConfirmModal() {
+            const modal = document.getElementById('confirm-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            confirmCallback = null;
+        }
+
+        document.getElementById('confirm-yes-btn').addEventListener('click', () => {
+            if (confirmCallback) confirmCallback();
+            closeConfirmModal();
+        });
+
+        function formatNum(num, decimals = 2) {
+            if (Math.abs(num) < 1e-9) return '0';
+            // Éviter les zéros inutiles après la virgule tout en gardant la précision
+            return Number(num.toFixed(decimals)).toLocaleString('fr-FR', { maximumFractionDigits: decimals });
+        }
+
+        function getCategoryBadge(cat) {
+            const map = {
+                'MP': '<span class="px-2 py-0.5 text-xs font-semibold rounded-md bg-amber-100 text-amber-800 border border-amber-200">Matière Première</span>',
+                'EMB': '<span class="px-2 py-0.5 text-xs font-semibold rounded-md bg-purple-100 text-purple-800 border border-purple-200">Emballage</span>',
+                'SF': '<span class="px-2 py-0.5 text-xs font-semibold rounded-md bg-sky-100 text-sky-800 border border-sky-200">Semi-Fini</span>',
+                'PF': '<span class="px-2 py-0.5 text-xs font-semibold rounded-md bg-indigo-100 text-indigo-800 border border-indigo-200">Produit Fini</span>'
+            };
+            return map[cat] || cat;
+        }
+
+        function getItemByCode(code) {
+            return appState.items.find(i => i.code === code);
+        }
+
+        // =========================================================================
+        // 4. ONGLET 1 : GESTION DES ARTICLES & STOCKS
+        // =========================================================================
+        function updateKpiCards() {
+            document.getElementById('badge-items-count').textContent = appState.items.length;
+            
+            const counts = { MP: 0, EMB: 0, SF: 0, PF: 0 };
+            const values = { MP: 0, EMB: 0, SF: 0, PF: 0 };
+
+            appState.items.forEach(item => {
+                if (counts[item.category] !== undefined) {
+                    counts[item.category]++;
+                    values[item.category] += (item.stock * (item.price || 0));
+                }
+            });
+
+            const kpiContainer = document.getElementById('kpi-cards');
+            kpiContainer.innerHTML = `
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-semibold text-slate-400 uppercase">Matières Premières</p>
+                        <p class="text-2xl font-bold text-slate-800 mt-1">${counts.MP} <span class="text-xs font-normal text-slate-500">réf.</span></p>
+                        <p class="text-xs text-amber-600 font-medium mt-1">Stock: ${formatNum(values.MP)} €</p>
+                    </div>
+                    <div class="w-10 h-10 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-flask"></i>
+                    </div>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-semibold text-slate-400 uppercase">Emballages</p>
+                        <p class="text-2xl font-bold text-slate-800 mt-1">${counts.EMB} <span class="text-xs font-normal text-slate-500">réf.</span></p>
+                        <p class="text-xs text-purple-600 font-medium mt-1">Stock: ${formatNum(values.EMB)} €</p>
+                    </div>
+                    <div class="w-10 h-10 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-box-open"></i>
+                    </div>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-semibold text-slate-400 uppercase">Semi-Finis (SF)</p>
+                        <p class="text-2xl font-bold text-slate-800 mt-1">${counts.SF} <span class="text-xs font-normal text-slate-500">réf.</span></p>
+                        <p class="text-xs text-sky-600 font-medium mt-1">Stock: ${formatNum(values.SF)} €</p>
+                    </div>
+                    <div class="w-10 h-10 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-gears"></i>
+                    </div>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-semibold text-slate-400 uppercase">Produits Finis (PF)</p>
+                        <p class="text-2xl font-bold text-slate-800 mt-1">${counts.PF} <span class="text-xs font-normal text-slate-500">réf.</span></p>
+                        <p class="text-xs text-indigo-600 font-medium mt-1">Stock: ${formatNum(values.PF)} €</p>
+                    </div>
+                    <div class="w-10 h-10 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-cube"></i>
+                    </div>
+                </div>
+            `;
+        }
+
+        function filterItems(cat) {
+            appState.currentCatFilter = cat;
+            document.querySelectorAll('.filter-cat-btn').forEach(btn => {
+                if (btn.dataset.cat === cat) {
+                    btn.classList.add('active', 'bg-slate-800', 'text-white');
+                    btn.classList.remove('bg-slate-100', 'text-slate-600');
+                } else {
+                    btn.classList.remove('active', 'bg-slate-800', 'text-white');
+                    btn.classList.add('bg-slate-100', 'text-slate-600');
+                }
+            });
+            renderItemsTable();
+        }
+
+        function renderItemsTable() {
+            const tbody = document.getElementById('items-table-body');
+            const search = (document.getElementById('search-item-input').value || '').toLowerCase().trim();
+
+            const filtered = appState.items.filter(item => {
+                const matchCat = appState.currentCatFilter === 'ALL' || item.category === appState.currentCatFilter;
+                const matchSearch = item.code.toLowerCase().includes(search) || item.name.toLowerCase().includes(search);
+                return matchCat && matchSearch;
+            });
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="py-8 text-center text-slate-400">Aucun article trouvé pour ce filtre.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = filtered.map(item => {
+                const totalVal = item.stock * (item.price || 0);
+                return `
+                    <tr class="hover:bg-slate-50/80 transition">
+                        <td class="py-3 px-4 font-bold text-slate-800">${item.code}</td>
+                        <td class="py-3 px-4 text-slate-700 font-medium">${item.name}</td>
+                        <td class="py-3 px-4">${getCategoryBadge(item.category)}</td>
+                        <td class="py-3 px-4 text-right">
+                            <input type="number" step="any" min="0" value="${item.stock}" 
+                                onchange="quickUpdateStock('${item.code}', this.value)"
+                                class="w-24 text-right font-semibold text-slate-800 bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 focus:border-indigo-500 rounded px-2 py-1 outline-none transition"
+                                title="Modifier directement le stock">
+                        </td>
+                        <td class="py-3 px-4 text-slate-500 text-xs font-medium">${item.unit}</td>
+                        <td class="py-3 px-4 text-right text-slate-600">${formatNum(item.price || 0)} €</td>
+                        <td class="py-3 px-4 text-right font-medium text-slate-700">${formatNum(totalVal)} €</td>
+                        <td class="py-3 px-4 text-center">
+                            <div class="flex items-center justify-center gap-1">
+                                <button onclick="openItemModal('${item.code}')" class="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition" title="Modifier">
+                                    <i class="fa-solid fa-pen-to-square"></i>
+                                </button>
+                                <button onclick="deleteItem('${item.code}')" class="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition" title="Supprimer">
+                                    <i class="fa-solid fa-trash-can"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function quickUpdateStock(code, newVal) {
+            const val = parseFloat(newVal);
+            if (isNaN(val) || val < 0) {
+                showToast("La quantité en stock doit être positive.", "error");
+                renderItemsTable();
+                return;
+            }
+            const item = getItemByCode(code);
+            if (item) {
+                item.stock = val;
+                saveState();
+                updateKpiCards();
+                showToast(`Stock de ${code} mis à jour (${formatNum(val)} ${item.unit}).`, "success");
+            }
+        }
+
+        function openItemModal(editCode = null) {
+            const modal = document.getElementById('item-modal');
+            const title = document.getElementById('item-modal-title');
+            const codeInput = document.getElementById('item-code');
+            const origCodeInput = document.getElementById('item-edit-original-code');
+
+            if (editCode) {
+                const item = getItemByCode(editCode);
+                title.textContent = `Modifier l'article ${item.code}`;
+                origCodeInput.value = item.code;
+                codeInput.value = item.code;
+                codeInput.disabled = true;
+                codeInput.classList.add('bg-slate-100', 'text-slate-500');
+                document.getElementById('item-category').value = item.category;
+                document.getElementById('item-name').value = item.name;
+                document.getElementById('item-stock').value = item.stock;
+                document.getElementById('item-unit').value = item.unit;
+                document.getElementById('item-price').value = item.price || 0;
+            } else {
+                title.textContent = "Nouvel Article";
+                origCodeInput.value = "";
+                codeInput.value = "";
+                codeInput.disabled = false;
+                codeInput.classList.remove('bg-slate-100', 'text-slate-500');
+                document.getElementById('item-category').value = "MP";
+                document.getElementById('item-name').value = "";
+                document.getElementById('item-stock').value = "100";
+                document.getElementById('item-unit').value = "g";
+                document.getElementById('item-price').value = "1.00";
+            }
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeItemModal() {
+            const modal = document.getElementById('item-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function saveItem(e) {
+            e.preventDefault();
+            const origCode = document.getElementById('item-edit-original-code').value;
+            const code = document.getElementById('item-code').value.trim().toUpperCase();
+            const category = document.getElementById('item-category').value;
+            const name = document.getElementById('item-name').value.trim();
+            const stock = parseFloat(document.getElementById('item-stock').value) || 0;
+            const unit = document.getElementById('item-unit').value;
+            const price = parseFloat(document.getElementById('item-price').value) || 0;
+
+            if (!origCode) {
+                // Création
+                if (getItemByCode(code)) {
+                    showToast(`Le code article "${code}" existe déjà.`, "error");
+                    return;
+                }
+                appState.items.push({ code, name, category, stock, unit, price });
+                if (category === 'PF' || category === 'SF') {
+                    appState.boms[code] = [];
+                }
+                if (category === 'PF') {
+                    appState.mrpPlan[code] = 0;
+                }
+                showToast(`Article ${code} ajouté avec succès.`, "success");
+            } else {
+                // Modification
+                const item = getItemByCode(origCode);
+                if (item) {
+                    item.category = category;
+                    item.name = name;
+                    item.stock = stock;
+                    item.unit = unit;
+                    item.price = price;
+                    if ((category === 'PF' || category === 'SF') && !appState.boms[origCode]) {
+                        appState.boms[origCode] = [];
+                    }
+                }
+                showToast(`Article ${origCode} mis à jour.`, "success");
+            }
+
+            saveState();
+            closeItemModal();
+            renderAll();
+        }
+
+        function deleteItem(code) {
+            openConfirmModal(
+                `Supprimer l'article ${code}`,
+                `Voulez-vous vraiment supprimer "${code}" ? Il sera également retiré des nomenclatures existantes.`,
+                () => {
+                    appState.items = appState.items.filter(i => i.code !== code);
+                    delete appState.boms[code];
+                    delete appState.mrpPlan[code];
+                    // Nettoyer des recettes
+                    Object.keys(appState.boms).forEach(parentCode => {
+                        appState.boms[parentCode] = appState.boms[parentCode].filter(line => line.itemCode !== code);
+                    });
+                    if (appState.selectedBomProduct === code) {
+                        const next = appState.items.find(i => i.category === 'PF' || i.category === 'SF');
+                        appState.selectedBomProduct = next ? next.code : null;
+                    }
+                    saveState();
+                    renderAll();
+                    showToast(`Article ${code} supprimé.`, "info");
+                }
+            );
+        }
+
+        // =========================================================================
+        // 5. ONGLET 2 : NOMENCLATURES MULTI-NIVEAUX (BOM)
+        // =========================================================================
+        function renderBomSidebar() {
+            const pfs = appState.items.filter(i => i.category === 'PF');
+            const sfs = appState.items.filter(i => i.category === 'SF');
+
+            document.getElementById('count-pf-bom').textContent = pfs.length;
+            document.getElementById('count-sf-bom').textContent = sfs.length;
+
+            const renderBtn = (item) => {
+                const isSelected = appState.selectedBomProduct === item.code;
+                const bomLen = (appState.boms[item.code] || []).length;
+                return `
+                    <button onclick="selectBomProduct('${item.code}')" 
+                        class="w-full text-left px-3.5 py-2.5 rounded-xl border transition flex items-center justify-between ${isSelected ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200/80'}">
+                        <div class="truncate pr-2">
+                            <div class="font-bold text-sm">${item.code}</div>
+                            <div class="text-xs truncate ${isSelected ? 'text-indigo-100' : 'text-slate-500'}">${item.name}</div>
+                        </div>
+                        <span class="text-xs px-2 py-0.5 rounded-full font-semibold ${isSelected ? 'bg-indigo-500 text-white' : 'bg-white text-slate-600 border border-slate-200'}">
+                            ${bomLen} comp.
+                        </span>
+                    </button>
+                `;
+            };
+
+            document.getElementById('bom-pf-list').innerHTML = pfs.length ? pfs.map(renderBtn).join('') : '<p class="text-xs text-slate-400 italic">Aucun produit fini</p>';
+            document.getElementById('bom-sf-list').innerHTML = sfs.length ? sfs.map(renderBtn).join('') : '<p class="text-xs text-slate-400 italic">Aucun semi-fini</p>';
+        }
+
+        function selectBomProduct(code) {
+            appState.selectedBomProduct = code;
+            renderBomSidebar();
+            renderBomEditor();
+        }
+
+        function renderBomEditor() {
+            const container = document.getElementById('bom-editor-container');
+            const product = getItemByCode(appState.selectedBomProduct);
+
+            if (!product) {
+                container.innerHTML = `<div class="text-center py-12 text-slate-400">Sélectionnez un Produit Fini ou Semi-Fini à gauche pour éditer sa nomenclature.</div>`;
+                return;
+            }
+
+            const recipe = appState.boms[product.code] || [];
+
+            // Filtrer les composants éligibles pour éviter les références circulaires
+            const eligibleComponents = appState.items.filter(item => {
+                if (item.code === product.code) return false;
+                if (product.category === 'SF') {
+                    // Un Semi-Fini est composé de MP ou EMB (évite les boucles infinies SF->SF)
+                    return item.category === 'MP' || item.category === 'EMB';
+                }
+                if (product.category === 'PF') {
+                    // Un Produit Fini peut consommer MP, EMB ou SF
+                    return item.category === 'MP' || item.category === 'EMB' || item.category === 'SF';
+                }
+                return false;
+            });
+
+            // Calculer le coût matière unitaire de la recette
+            let unitCost = 0;
+            recipe.forEach(line => {
+                const comp = getItemByCode(line.itemCode);
+                if (comp) unitCost += line.qty * (comp.price || 0);
+            });
+
+            container.innerHTML = `
+                <div class="flex flex-wrap items-start justify-between gap-4 pb-5 border-b border-slate-200">
+                    <div>
+                        <div class="flex items-center gap-2.5">
+                            <h2 class="text-xl font-bold text-slate-800">${product.code} — ${product.name}</h2>
+                            ${getCategoryBadge(product.category)}
+                        </div>
+                        <p class="text-xs text-slate-500 mt-1">Composition requise pour produire <strong>1 ${product.unit}</strong> de ${product.code}</p>
+                    </div>
+                    <div class="bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-200 text-right">
+                        <span class="text-[11px] uppercase font-semibold text-slate-400 block">Coût Matière Direct</span>
+                        <span class="text-base font-bold text-slate-800">${formatNum(unitCost, 3)} € <span class="text-xs font-normal text-slate-500">/ ${product.unit}</span></span>
+                    </div>
+                </div>
+
+                <!-- Formulaire d'ajout d'ingrédient -->
+                <form onsubmit="addBomIngredient(event)" class="my-5 bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
+                    <div class="flex-grow">
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Composant (MP, EMB${product.category === 'PF' ? ', SF' : ''})</label>
+                        <select id="bom-add-component" required class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
+                            ${eligibleComponents.map(c => `<option value="${c.code}">[${c.category}] ${c.code} - ${c.name} (${c.unit})</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="w-full sm:w-36">
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Quantité / unité</label>
+                        <input type="number" id="bom-add-qty" step="any" min="0.0001" required placeholder="ex: 0.5" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
+                    </div>
+                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition flex items-center justify-center gap-2 whitespace-nowrap">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>Ajouter</span>
+                    </button>
+                </form>
+
+                <!-- Tableau des ingrédients de la recette -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-sm">
+                        <thead>
+                            <tr class="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase">
+                                <th class="py-2.5 px-3">Code</th>
+                                <th class="py-2.5 px-3">Composant</th>
+                                <th class="py-2.5 px-3">Type</th>
+                                <th class="py-2.5 px-3 text-right">Qté pour 1 ${product.unit}</th>
+                                <th class="py-2.5 px-3">Unité</th>
+                                <th class="py-2.5 px-3 text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            ${recipe.length === 0 ? `
+                                <tr><td colspan="6" class="py-8 text-center text-slate-400">Aucun composant dans cette recette. Ajoutez des matières ci-dessus.</td></tr>
+                            ` : recipe.map((line, idx) => {
+                                const comp = getItemByCode(line.itemCode);
+                                if (!comp) return '';
+                                // Afficher un aperçu si c'est un Semi-Fini
+                                let subInfo = '';
+                                if (comp.category === 'SF' && appState.boms[comp.code]) {
+                                    const subStr = appState.boms[comp.code].map(s => `${formatNum(s.qty * line.qty, 3)} ${s.itemCode}`).join(' + ');
+                                    subInfo = `<div class="text-[11px] text-sky-600 mt-0.5"><i class="fa-solid fa-turn-up fa-rotate-90 mr-1"></i>Contient : ${subStr || 'recette vide'}</div>`;
+                                }
+                                return `
+                                    <tr class="hover:bg-slate-50">
+                                        <td class="py-3 px-3 font-bold text-slate-800">${comp.code}</td>
+                                        <td class="py-3 px-3">
+                                            <div class="font-medium text-slate-700">${comp.name}</div>
+                                            ${subInfo}
+                                        </td>
+                                        <td class="py-3 px-3">${getCategoryBadge(comp.category)}</td>
+                                        <td class="py-3 px-3 text-right">
+                                            <input type="number" step="any" min="0.0001" value="${line.qty}"
+                                                onchange="updateBomLineQty('${product.code}', ${idx}, this.value)"
+                                                class="w-24 text-right font-semibold text-indigo-700 bg-indigo-50/50 border border-indigo-200 rounded px-2 py-1 focus:bg-white focus:border-indigo-500 outline-none">
+                                        </td>
+                                        <td class="py-3 px-3 text-slate-500 text-xs font-medium">${comp.unit}</td>
+                                        <td class="py-3 px-3 text-center">
+                                            <button onclick="removeBomLine('${product.code}', ${idx})" class="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition" title="Retirer de la recette">
+                                                <i class="fa-solid fa-trash-can"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function addBomIngredient(e) {
+            e.preventDefault();
+            const prodCode = appState.selectedBomProduct;
+            const compCode = document.getElementById('bom-add-component').value;
+            const qty = parseFloat(document.getElementById('bom-add-qty').value);
+
+            if (!prodCode || !compCode || isNaN(qty) || qty <= 0) return;
+
+            if (!appState.boms[prodCode]) appState.boms[prodCode] = [];
+
+            // Si le composant existe déjà dans la recette, on cumule la quantité (ex: si l'utilisateur ajoute M1 deux fois)
+            const existing = appState.boms[prodCode].find(l => l.itemCode === compCode);
+            if (existing) {
+                existing.qty = Number((existing.qty + qty).toFixed(6));
+                showToast(`Quantité de ${compCode} cumulée dans la recette de ${prodCode}.`, "info");
+            } else {
+                appState.boms[prodCode].push({ itemCode: compCode, qty });
+                showToast(`${compCode} ajouté à la nomenclature de ${prodCode}.`, "success");
+            }
+
+            document.getElementById('bom-add-qty').value = '';
+            saveState();
+            renderBomSidebar();
+            renderBomEditor();
+        }
+
+        function updateBomLineQty(prodCode, idx, newQty) {
+            const val = parseFloat(newQty);
+            if (isNaN(val) || val <= 0) {
+                showToast("La quantité doit être supérieure à 0.", "error");
+                renderBomEditor();
+                return;
+            }
+            appState.boms[prodCode][idx].qty = val;
+            saveState();
+            renderBomEditor();
+            showToast("Recette mise à jour.", "success");
+        }
+
+        function removeBomLine(prodCode, idx) {
+            appState.boms[prodCode].splice(idx, 1);
+            saveState();
+            renderBomSidebar();
+            renderBomEditor();
+            showToast("Composant retiré de la recette.", "info");
+        }
+
+        // =========================================================================
+        // 6. MOTEUR D'ÉCLATEMENT MULTI-NIVEAUX (EXPLOSION DES BESOINS)
+        // =========================================================================
+        /**
+         * Calcule les besoins nets en matières premières (MP) et emballages (EMB)
+         * pour un dictionnaire de quantités de Produits Finis { P1: 500, P2: 100 ... }
+         */
+        function explodeRequirements(productionPlan, useExistingSfStock = true) {
+            const sfGrossDemand = {}; // Besoin brut en SF
+            const rawRequirements = {}; // Besoin total en MP et EMB
+
+            // 1. Calculer les besoins directs des Produits Finis
+            Object.entries(productionPlan).forEach(([pfCode, pfQty]) => {
+                if (!pfQty || pfQty <= 0) return;
+                const bom = appState.boms[pfCode] || [];
+                bom.forEach(line => {
+                    const comp = getItemByCode(line.itemCode);
+                    if (!comp) return;
+                    const needed = line.qty * pfQty;
+
+                    if (comp.category === 'SF') {
+                        sfGrossDemand[comp.code] = (sfGrossDemand[comp.code] || 0) + needed;
+                    } else {
+                        rawRequirements[comp.code] = (rawRequirements[comp.code] || 0) + needed;
+                    }
+                });
+            });
+
+            // 2. Traiter les Semi-Finis (déduire le stock SF disponible si option cochée, puis éclater en MP/EMB)
+            const sfDetails = [];
+            Object.entries(sfGrossDemand).forEach(([sfCode, grossQty]) => {
+                const sfItem = getItemByCode(sfCode);
+                const availSfStock = useExistingSfStock && sfItem ? sfItem.stock : 0;
+                const netToProduce = Math.max(0, grossQty - availSfStock);
+
+                sfDetails.push({
+                    code: sfCode,
+                    name: sfItem ? sfItem.name : sfCode,
+                    unit: sfItem ? sfItem.unit : 'unité',
+                    grossDemand: grossQty,
+                    stockAvailable: sfItem ? sfItem.stock : 0,
+                    netToProduce: netToProduce
+                });
+
+                if (netToProduce > 0) {
+                    const sfBom = appState.boms[sfCode] || [];
+                    sfBom.forEach(line => {
+                        const comp = getItemByCode(line.itemCode);
+                        if (!comp) return;
+                        rawRequirements[comp.code] = (rawRequirements[comp.code] || 0) + (line.qty * netToProduce);
+                    });
+                }
+            });
+
+            return { rawRequirements, sfDetails };
+        }
+
+        // =========================================================================
+        // 7. ONGLET 3 : CALCUL DES BESOINS (MRP)
+        // =========================================================================
+        function renderMrpInputs() {
+            const container = document.getElementById('mrp-inputs-list');
+            const pfs = appState.items.filter(i => i.category === 'PF');
+
+            if (pfs.length === 0) {
+                container.innerHTML = `<p class="text-sm text-slate-400">Aucun Produit Fini défini dans l'onglet 1.</p>`;
+                return;
+            }
+
+            container.innerHTML = pfs.map(pf => {
+                const plannedQty = appState.mrpPlan[pf.code] !== undefined ? appState.mrpPlan[pf.code] : 0;
+                return `
+                    <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                        <div class="pr-3">
+                            <div class="font-bold text-sm text-slate-800">${pf.code} — ${pf.name}</div>
+                            <div class="text-xs text-slate-500">Stock PF actuel : <span class="font-semibold text-slate-700">${formatNum(pf.stock)} ${pf.unit}</span></div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input type="number" min="0" step="1" value="${plannedQty}"
+                                oninput="updateMrpPlanQty('${pf.code}', this.value)"
+                                class="w-28 text-right font-bold text-base text-indigo-700 bg-white border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 rounded-lg px-3 py-1.5 outline-none">
+                            <span class="text-xs font-medium text-slate-500 w-10">${pf.unit}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateMrpPlanQty(pfCode, val) {
+            const qty = Math.max(0, parseFloat(val) || 0);
+            appState.mrpPlan[pfCode] = qty;
+            saveState();
+            calculateMRP();
+        }
+
+        function clearMrpInputs() {
+            Object.keys(appState.mrpPlan).forEach(k => appState.mrpPlan[k] = 0);
+            saveState();
+            renderMrpInputs();
+            calculateMRP();
+        }
+
+        function calculateMRP() {
+            const useSfStock = document.getElementById('mrp-use-sf-stock').checked;
+            const { rawRequirements, sfDetails } = explodeRequirements(appState.mrpPlan, useSfStock);
+
+            // Afficher le tableau des Semi-Finis si applicable
+            const sfCard = document.getElementById('mrp-sf-summary-card');
+            const sfBody = document.getElementById('mrp-sf-table-body');
+            if (sfDetails.length > 0) {
+                sfCard.classList.remove('hidden');
+                sfBody.innerHTML = sfDetails.map(sf => `
+                    <tr>
+                        <td class="py-2 font-semibold text-slate-800">${sf.code}</td>
+                        <td class="py-2 text-right font-medium">${formatNum(sf.grossDemand)} ${sf.unit}</td>
+                        <td class="py-2 text-right text-slate-500">${formatNum(sf.stockAvailable)}</td>
+                        <td class="py-2 text-right font-bold ${sf.netToProduce > 0 ? 'text-sky-600' : 'text-emerald-600'}">${formatNum(sf.netToProduce)}</td>
+                    </tr>
+                `).join('');
+            } else {
+                sfCard.classList.add('hidden');
+            }
+
+            // Construire le tableau des besoins bruts/nets en MP et EMB
+            const tbody = document.getElementById('mrp-results-body');
+            const reqCodes = Object.keys(rawRequirements);
+
+            let hasShortage = false;
+            let totalCostNeeded = 0;
+            let totalUnitsPlanned = Object.values(appState.mrpPlan).reduce((a, b) => a + (b || 0), 0);
+
+            if (reqCodes.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="py-10 text-center text-slate-400">Saisissez une quantité de production à gauche pour calculer les besoins matières.</td></tr>`;
+                document.getElementById('mrp-status-badge').className = "px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600";
+                document.getElementById('mrp-status-badge').textContent = "En attente de plan";
+                document.getElementById('mrp-kpi-bar').innerHTML = '';
+                return;
+            }
+
+            const rowsHtml = reqCodes.map(code => {
+                const item = getItemByCode(code);
+                if (!item) return '';
+                const needed = rawRequirements[code];
+                const stock = item.stock;
+                const diff = stock - needed;
+                const isShort = diff < -1e-6;
+                if (isShort) hasShortage = true;
+
+                totalCostNeeded += needed * (item.price || 0);
+
+                return `
+                    <tr class="${isShort ? 'bg-rose-50/60' : 'hover:bg-slate-50'} transition">
+                        <td class="py-3 px-3">
+                            <span class="font-bold text-slate-800">${item.code}</span>
+                            <span class="text-xs text-slate-500 block sm:inline sm:ml-1.5">${item.name}</span>
+                        </td>
+                        <td class="py-3 px-3">${getCategoryBadge(item.category)}</td>
+                        <td class="py-3 px-3 text-right font-bold text-slate-800">${formatNum(needed, 3)} <span class="text-xs font-normal text-slate-500">${item.unit}</span></td>
+                        <td class="py-3 px-3 text-right text-slate-600">${formatNum(stock, 3)} <span class="text-xs text-slate-400">${item.unit}</span></td>
+                        <td class="py-3 px-3 text-right font-bold ${isShort ? 'text-rose-600' : 'text-emerald-600'}">
+                            ${diff >= 0 ? '+' : ''}${formatNum(diff, 3)} <span class="text-xs font-normal">${item.unit}</span>
+                        </td>
+                        <td class="py-3 px-3 text-center">
+                            ${isShort 
+                                ? `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800"><i class="fa-solid fa-xmark"></i> Manquant</span>`
+                                : `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800"><i class="fa-solid fa-check"></i> OK</span>`
+                            }
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            tbody.innerHTML = rowsHtml;
+
+            // Badge global
+            const statusBadge = document.getElementById('mrp-status-badge');
+            if (hasShortage) {
+                statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1.5";
+                statusBadge.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Rupture de Stock Détectée`;
+            } else {
+                statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1.5";
+                statusBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Stock Suffisant (100% Réalisable)`;
+            }
+
+            // Barre KPI MRP
+            document.getElementById('mrp-kpi-bar').innerHTML = `
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                    <span class="text-[11px] font-semibold uppercase text-slate-400 block">Total Unités Planifiées</span>
+                    <span class="text-lg font-bold text-indigo-700">${formatNum(totalUnitsPlanned, 0)} <span class="text-xs font-normal text-slate-500">PF</span></span>
+                </div>
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                    <span class="text-[11px] font-semibold uppercase text-slate-400 block">Références Mobilisées</span>
+                    <span class="text-lg font-bold text-slate-800">${reqCodes.length} <span class="text-xs font-normal text-slate-500">comp.</span></span>
+                </div>
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                    <span class="text-[11px] font-semibold uppercase text-slate-400 block">Coût Matières Estimé</span>
+                    <span class="text-lg font-bold text-slate-800">${formatNum(totalCostNeeded, 2)} €</span>
+                </div>
+            `;
+        }
+
+        // =========================================================================
+        // 8. ONGLET 4 : OPTIMISATION SOUS CONTRAINTES (STOCKS -> MEILLEURE COMBINAISON)
+        // =========================================================================
+        function renderOptProductList() {
+            const container = document.getElementById('opt-products-list');
+            const pfs = appState.items.filter(i => i.category === 'PF');
+
+            container.innerHTML = pfs.map(pf => {
+                return `
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-200/90 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" class="opt-pf-check rounded text-indigo-600 focus:ring-indigo-500" data-code="${pf.code}" checked>
+                                <span class="font-bold text-sm text-slate-800">${pf.code}</span>
+                                <span class="text-xs text-slate-500 truncate max-w-[140px]">${pf.name}</span>
+                            </label>
+                            <span class="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">${formatNum(pf.price || 1)} €/u</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2 pt-1">
+                            <div>
+                                <label class="block text-[10px] text-slate-500 uppercase">Min requis</label>
+                                <input type="number" min="0" step="1" value="0" data-code="${pf.code}" class="opt-pf-min w-full text-xs border border-slate-300 rounded px-2 py-1 bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-500 uppercase">Max souhaité</label>
+                                <input type="number" min="0" step="1" placeholder="Illimité" data-code="${pf.code}" class="opt-pf-max w-full text-xs border border-slate-300 rounded px-2 py-1 bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-500 uppercase">Poids / Priorité</label>
+                                <input type="number" min="0.1" step="0.1" value="1" data-code="${pf.code}" class="opt-pf-weight w-full text-xs border border-slate-300 rounded px-2 py-1 bg-white">
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        /**
+         * Solveur d'optimisation exact en nombres entiers (Branch-and-Bound / Exploration guidée)
+         * Trouve le vecteur entier X = [x_1, x_2, ..., x_n] maximisant la fonction objectif
+         * sous contraintes linéaires de stocks de MP, EMB et SF.
+         */
+        function runOptimization() {
+            const objectiveType = document.getElementById('opt-objective').value;
+            const useSfStock = document.getElementById('opt-use-sf-stock').checked;
+
+            // Récupérer les produits candidats sélectionnés
+            const candidates = [];
+            document.querySelectorAll('.opt-pf-check').forEach(chk => {
+                if (chk.checked) {
+                    const code = chk.dataset.code;
+                    const item = getItemByCode(code);
+                    const minVal = parseInt(document.querySelector(`.opt-pf-min[data-code="${code}"]`).value) || 0;
+                    const maxRaw = document.querySelector(`.opt-pf-max[data-code="${code}"]`).value;
+                    const maxVal = maxRaw === '' ? Infinity : (parseInt(maxRaw) || 0);
+                    const weightVal = parseFloat(document.querySelector(`.opt-pf-weight[data-code="${code}"]`).value) || 1;
+
+                    candidates.push({
+                        code,
+                        item,
+                        min: minVal,
+                        max: maxVal,
+                        weight: weightVal,
+                        price: item.price || 1
+                    });
+                }
+            });
+
+            if (candidates.length === 0) {
+                showToast("Sélectionnez au moins un Produit Fini à optimiser.", "warning");
+                return;
+            }
+
+            // Construire les coefficients de consommation unitaire totalement éclatés pour chaque PF candidat
+            // Attention : si useSfStock est activé, le stock de SF agit comme un "crédit" avant de consommer les MP du SF.
+            // Pour modéliser exactement cela :
+            // Chaque unité de PF_j consomme directRaw[j][r] + directSf[j][sf] * sfRaw[sf][r]
+            // Sauf que pour chaque SF, jusqu'à stock[sf] unités de SF utilisées ne consomment pas sfRaw[sf][r].
+            
+            // Calculer d'abord la borne supérieure théorique de chaque produit candidat
+            candidates.forEach(cand => {
+                let upperBound = cand.max;
+                // Tester la faisabilité unitaire max en supposant les autres produits à 0
+                let low = 0, high = 100000;
+                while (low < high) {
+                    const mid = Math.ceil((low + high) / 2);
+                    const plan = { [cand.code]: mid };
+                    if (isPlanFeasible(plan, useSfStock)) {
+                        low = mid;
+                    } else {
+                        high = mid - 1;
+                    }
+                }
+                cand.upperBound = Math.min(upperBound, low);
+            });
+
+            // Vérifier si les minimums demandés sont réalisables
+            const minPlan = {};
+            candidates.forEach(c => minPlan[c.code] = c.min);
+            if (!isPlanFeasible(minPlan, useSfStock)) {
+                showToast("Les quantités minimums exigées dépassent les stocks disponibles !", "error");
+                renderOptResults(minPlan, false, useSfStock);
+                return;
+            }
+
+            // Fonction d'évaluation de l'objectif pour une combinaison donnée
+            function evaluateObjective(countsArray) {
+                let totalUnits = 0;
+                let totalValue = 0;
+                let weightedSum = 0;
+                let minVal = Infinity;
+
+                for (let i = 0; i < candidates.length; i++) {
+                    const q = countsArray[i];
+                    totalUnits += q;
+                    totalValue += q * candidates[i].price;
+                    weightedSum += q * candidates[i].weight;
+                    if (q < minVal) minVal = q;
+                }
+
+                if (objectiveType === 'MAX_UNITS') {
+                    // Maximiser le total d'unités, puis départager par la valeur
+                    return totalUnits * 100000 + totalValue;
+                } else if (objectiveType === 'MAX_VALUE') {
+                    return totalValue * 1000 + totalUnits;
+                } else if (objectiveType === 'PRIORITY_WEIGHTED') {
+                    return weightedSum * 10000 + totalUnits;
+                } else if (objectiveType === 'BALANCED') {
+                    // Maximiser le minimum produit entre tous les candidats (équilibrage Max-Min), puis le total
+                    return minVal * 1000000 + totalUnits * 100 + totalValue;
+                }
+                return totalUnits;
+            }
+
+            // Algorithme Branch-and-Bound rapide avec élagage et heuristique gloutonne initiale
+            let bestScore = -1;
+            let bestCounts = candidates.map(c => c.min);
+            bestScore = evaluateObjective(bestCounts);
+
+            // Heuristique gloutonne pour obtenir une excellente borne inférieure immédiatement
+            let greedyCounts = [...bestCounts];
+            let improved = true;
+            while (improved) {
+                improved = false;
+                let bestStepIdx = -1;
+                let bestStepScore = bestScore;
+
+                for (let i = 0; i < candidates.length; i++) {
+                    if (greedyCounts[i] + 1 <= candidates[i].upperBound) {
+                        greedyCounts[i]++;
+                        const plan = {};
+                        candidates.forEach((c, idx) => plan[c.code] = greedyCounts[idx]);
+                        if (isPlanFeasible(plan, useSfStock)) {
+                            const sc = evaluateObjective(greedyCounts);
+                            if (sc > bestStepScore) {
+                                bestStepScore = sc;
+                                bestStepIdx = i;
+                            }
+                        }
+                        greedyCounts[i]--;
+                    }
+                }
+                if (bestStepIdx !== -1) {
+                    greedyCounts[bestStepIdx]++;
+                    bestScore = bestStepScore;
+                    bestCounts = [...greedyCounts];
+                    improved = true;
+                }
+            }
+
+            // Exploration exacte Branch & Bound (sécurisée par un compteur d'itérations max pour fluidité instantanée)
+            let iterations = 0;
+            const MAX_ITERATIONS = 45000;
+            const n = candidates.length;
+            const currentCounts = new Array(n).fill(0);
+
+            function branchAndBound(idx) {
+                if (iterations++ > MAX_ITERATIONS) return;
+
+                if (idx === n) {
+                    const sc = evaluateObjective(currentCounts);
+                    if (sc > bestScore) {
+                        bestScore = sc;
+                        bestCounts = [...currentCounts];
+                    }
+                    return;
+                }
+
+                // Calculer la borne supérieure optimiste (Relaxation) pour élaguer les branches inutiles
+                const optimisticCounts = [...currentCounts];
+                for (let k = idx; k < n; k++) {
+                    optimisticCounts[k] = candidates[k].upperBound;
+                }
+                if (evaluateObjective(optimisticCounts) <= bestScore) {
+                    return; // Élagage ! Impossible de battre bestScore dans cette branche
+                }
+
+                // Déterminer le max local pour candidates[idx] sachant currentCounts[0..idx-1]
+                let localLow = candidates[idx].min;
+                let localHigh = candidates[idx].upperBound;
+
+                // Recherche binaire du max réalisable à ce niveau
+                const testPlan = {};
+                for (let k = 0; k < idx; k++) testPlan[candidates[k].code] = currentCounts[k];
+                for (let k = idx + 1; k < n; k++) testPlan[candidates[k].code] = candidates[k].min;
+
+                while (localLow < localHigh) {
+                    const mid = Math.ceil((localLow + localHigh) / 2);
+                    testPlan[candidates[idx].code] = mid;
+                    if (isPlanFeasible(testPlan, useSfStock)) {
+                        localLow = mid;
+                    } else {
+                        localHigh = mid - 1;
+                    }
+                }
+
+                // Explorer du plus grand au plus petit pour trouver vite l'optimum
+                for (let val = localLow; val >= candidates[idx].min; val--) {
+                    currentCounts[idx] = val;
+                    branchAndBound(idx + 1);
+                    if (iterations > MAX_ITERATIONS) break;
+                }
+            }
+
+            // Lancer l'exploration si le nombre de candidats est raisonnable
+            if (n <= 8) {
+                branchAndBound(0);
+            }
+
+            const finalPlan = {};
+            candidates.forEach((c, idx) => finalPlan[c.code] = bestCounts[idx]);
+            appState.lastOptimalCombo = finalPlan;
+
+            renderOptResults(finalPlan, true, useSfStock);
+        }
+
+        function isPlanFeasible(plan, useSfStock) {
+            const { rawRequirements } = explodeRequirements(plan, useSfStock);
+            for (const [code, needed] of Object.entries(rawRequirements)) {
+                const item = getItemByCode(code);
+                if (!item || needed > item.stock + 1e-7) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function renderOptResults(plan, isFeasible, useSfStock) {
+            const cardsContainer = document.getElementById('opt-best-combo-cards');
+            const bottlenecksContainer = document.getElementById('opt-bottlenecks-list');
+            const applyBtn = document.getElementById('btn-apply-mrp');
+
+            if (!isFeasible) {
+                applyBtn.classList.add('hidden');
+                cardsContainer.innerHTML = `<div class="col-span-3 p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-sm font-medium">Impossible de satisfaire les contraintes minimums avec les stocks actuels.</div>`;
+                bottlenecksContainer.innerHTML = '';
+                return;
+            }
+
+            applyBtn.classList.remove('hidden');
+
+            let totalUnits = 0;
+            let totalRevenue = 0;
+
+            const cardsHtml = Object.entries(plan).map(([code, qty]) => {
+                const item = getItemByCode(code);
+                totalUnits += qty;
+                totalRevenue += qty * (item.price || 0);
+                return `
+                    <div class="p-4 rounded-xl border ${qty > 0 ? 'bg-indigo-50/60 border-indigo-200' : 'bg-slate-50 border-slate-200'} flex flex-col justify-between">
+                        <div class="flex items-center justify-between">
+                            <span class="font-bold text-slate-800 text-base">${code}</span>
+                            <span class="text-xs text-slate-500">${formatNum(item.price || 0)} €/u</span>
+                        </div>
+                        <p class="text-xs text-slate-500 truncate mt-0.5">${item.name}</p>
+                        <div class="mt-3 pt-2 border-t border-slate-200/60 flex items-baseline justify-between">
+                            <span class="text-2xl font-extrabold ${qty > 0 ? 'text-indigo-700' : 'text-slate-400'}">${formatNum(qty, 0)}</span>
+                            <span class="text-xs font-medium text-slate-500">${item.unit}(s)</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            cardsContainer.innerHTML = cardsHtml + `
+                <div class="col-span-1 sm:col-span-3 bg-slate-900 text-white p-4 rounded-xl flex flex-wrap items-center justify-between gap-4 mt-1">
+                    <div>
+                        <span class="text-xs text-slate-400 uppercase font-semibold block">Production Totale Optimale</span>
+                        <span class="text-xl font-bold text-emerald-400">${formatNum(totalUnits, 0)} unités</span>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xs text-slate-400 uppercase font-semibold block">Valorisation / Marge Totale</span>
+                        <span class="text-xl font-bold text-amber-300">${formatNum(totalRevenue, 2)} €</span>
+                    </div>
+                </div>
+            `;
+
+            // Calculer l'utilisation de tous les stocks (MP, EMB et SF utilisés)
+            const { rawRequirements, sfDetails } = explodeRequirements(plan, useSfStock);
+            const usageList = [];
+
+            Object.entries(rawRequirements).forEach(([code, used]) => {
+                const item = getItemByCode(code);
+                if (item && item.stock > 0) {
+                    const pct = Math.min(100, (used / item.stock) * 100);
+                    usageList.push({
+                        code: item.code,
+                        name: item.name,
+                        category: item.category,
+                        used,
+                        stock: item.stock,
+                        unit: item.unit,
+                        pct
+                    });
+                }
+            });
+
+            if (useSfStock) {
+                sfDetails.forEach(sf => {
+                    if (sf.stockAvailable > 0) {
+                        const sfUsedFromStock = Math.min(sf.grossDemand, sf.stockAvailable);
+                        const pct = Math.min(100, (sfUsedFromStock / sf.stockAvailable) * 100);
+                        usageList.push({
+                            code: sf.code,
+                            name: sf.name,
+                            category: 'SF',
+                            used: sfUsedFromStock,
+                            stock: sf.stockAvailable,
+                            unit: sf.unit,
+                            pct
+                        });
+                    }
+                });
+            }
+
+            // Trier par taux de saturation décroissant (les goulots d'étranglement en premier)
+            usageList.sort((a, b) => b.pct - a.pct);
+
+            if (usageList.length === 0) {
+                bottlenecksContainer.innerHTML = `<p class="text-xs text-slate-400">Aucune matière consommée (production nulle).</p>`;
+                return;
+            }
+
+            bottlenecksContainer.innerHTML = usageList.map(u => {
+                const isBottleneck = u.pct >= 90;
+                const barColor = u.pct >= 95 ? 'bg-rose-500' : (u.pct >= 75 ? 'bg-amber-500' : 'bg-emerald-500');
+                return `
+                    <div class="bg-slate-50 p-3 rounded-lg border border-slate-200/70">
+                        <div class="flex justify-between items-center text-xs mb-1.5">
+                            <div class="flex items-center gap-2">
+                                <span class="font-bold text-slate-800">${u.code}</span>
+                                <span class="text-slate-600">${u.name}</span>
+                                ${isBottleneck ? '<span class="px-1.5 py-0.5 text-[10px] font-bold bg-rose-100 text-rose-700 rounded">Goulot</span>' : ''}
+                            </div>
+                            <span class="font-semibold text-slate-700">${formatNum(u.used, 2)} / ${formatNum(u.stock, 2)} ${u.unit} (${formatNum(u.pct, 1)}%)</span>
+                        </div>
+                        <div class="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                            <div class="${barColor} h-2 rounded-full transition-all duration-500" style="width: ${u.pct}%"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function applyOptimalToMrp() {
+            if (!appState.lastOptimalCombo) return;
+            // Réinitialiser le plan MRP puis appliquer la combinaison optimale
+            Object.keys(appState.mrpPlan).forEach(k => appState.mrpPlan[k] = 0);
+            Object.entries(appState.lastOptimalCombo).forEach(([code, qty]) => {
+                appState.mrpPlan[code] = qty;
+            });
+            saveState();
+            switchTab('tab-mrp');
+            showToast("Combinaison optimale chargée dans le calculateur MRP.", "success");
+        }
+
+        // =========================================================================
+        // 9. EXPORTS CSV
+        // =========================================================================
+        function downloadCSV(filename, csvContent) {
+            const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", filename);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function exportAllDataCSV() {
+            let csv = "Code;Designation;Categorie;Stock;Unite;Prix_Unitaire\n";
+            appState.items.forEach(i => {
+                csv += `${i.code};"${i.name}";${i.category};${i.stock};${i.unit};${i.price || 0}\n`;
+            });
+            downloadCSV("optiprod_stocks_articles.csv", csv);
+            showToast("Export CSV des articles téléchargé.", "success");
+        }
+
+        function exportMrpCSV() {
+            const useSfStock = document.getElementById('mrp-use-sf-stock').checked;
+            const { rawRequirements } = explodeRequirements(appState.mrpPlan, useSfStock);
+            let csv = "Code;Designation;Categorie;Besoin_Total;Stock_Actuel;Solde;Unite;Statut\n";
+            Object.entries(rawRequirements).forEach(([code, needed]) => {
+                const item = getItemByCode(code);
+                if (!item) return;
+                const diff = item.stock - needed;
+                const statut = diff < -1e-6 ? "MANQUANT" : "OK";
+                csv += `${item.code};"${item.name}";${item.category};${needed.toFixed(4)};${item.stock};${diff.toFixed(4)};${item.unit};${statut}\n`;
+            });
+            downloadCSV("optiprod_calcul_besoins_mrp.csv", csv);
+            showToast("Export CSV du calcul MRP téléchargé.", "success");
+        }
+
+        // Démarrer l'application au chargement
+        window.addEventListener('DOMContentLoaded', initApp);
+    </script>
+</body>
+</html>
