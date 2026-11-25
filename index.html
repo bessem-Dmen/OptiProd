@@ -1864,6 +1864,42 @@
         }
 
         // --- IMPORT / EXPORT CSV EXCEL ---
+        function parseFrenchNumber(raw) {
+            if (raw === undefined || raw === null) return NaN;
+            let cleaned = String(raw).trim();
+            if (cleaned === '' || cleaned === '-') return NaN;
+            // Supprimer tous les espaces (espace normal, espace insécable \u00A0, espace fin insécable \u202F) et les apostrophes
+            cleaned = cleaned.replace(/[\s\u00A0\u202F']/g, '');
+            // Remplacer la virgule décimale par un point
+            cleaned = cleaned.replace(',', '.');
+            const val = parseFloat(cleaned);
+            return isNaN(val) ? NaN : val;
+        }
+
+        function splitCsvLine(line, sep) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+                const ch = line[i];
+                if (ch === '"') {
+                    if (inQuotes && line[i + 1] === '"') {
+                        current += '"';
+                        i++;
+                    } else {
+                        inQuotes = !inQuotes;
+                    }
+                } else if (ch === sep && !inQuotes) {
+                    result.push(current.trim());
+                    current = '';
+                } else {
+                    current += ch;
+                }
+            }
+            result.push(current.trim());
+            return result;
+        }
+
         function exportAllDataCSV() {
             let csv = "Code;Designation;Categorie;Stock;Unite;Prix_Unitaire\n";
             appState.items.forEach(i => {
@@ -1896,25 +1932,25 @@
                     let createdCount = 0;
 
                     for (let i = 1; i < lines.length; i++) {
-                        // Découper en respectant les guillemets éventuels
-                        const cols = lines[i].split(sep).map(c => c.trim().replace(/^"|"$/g, '').replace(/""/g, '"'));
+                        const cols = splitCsvLine(lines[i], sep);
                         if (cols.length < 4) continue;
 
-                        const code = cols[0].toUpperCase();
+                        const code = (cols[0] || '').toUpperCase();
                         const name = cols[1] || code;
                         const rawCat = (cols[2] || 'MP').toUpperCase();
                         const category = ['MP', 'EMB', 'SF', 'PF'].includes(rawCat) ? rawCat : 'MP';
-                        const stock = parseFloat(cols[3].replace(',', '.'));
-                        const unit = cols[4] || 'unité';
-                        const price = cols[5] !== undefined ? parseFloat(cols[5].replace(',', '.')) : 0;
+                        const parsedStock = parseFrenchNumber(cols[3]);
+                        const stock = isNaN(parsedStock) ? 0 : Math.max(0, parsedStock);
+                        const unit = (cols[4] && cols[4] !== '-') ? cols[4] : 'unité';
+                        const price = cols[5] !== undefined ? parseFrenchNumber(cols[5]) : NaN;
 
-                        if (!code || isNaN(stock)) continue;
+                        if (!code) continue;
 
                         const existing = getItemByCode(code);
                         if (existing) {
                             existing.name = name || existing.name;
                             existing.category = category;
-                            existing.stock = Math.max(0, stock);
+                            existing.stock = stock;
                             existing.unit = unit || existing.unit;
                             if (!isNaN(price)) existing.price = Math.max(0, price);
                             updatedCount++;
@@ -1923,7 +1959,7 @@
                                 code,
                                 name,
                                 category,
-                                stock: Math.max(0, stock),
+                                stock,
                                 unit,
                                 price: isNaN(price) ? 0 : Math.max(0, price)
                             });
