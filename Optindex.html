@@ -63,14 +63,22 @@
                 </div>
 
                 <!-- Actions globales -->
-                <div class="flex items-center space-x-2">
-                    <button onclick="exportAllDataCSV()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-medium px-3 py-2 rounded-lg border border-slate-700 transition flex items-center gap-2">
-                        <i class="fa-solid fa-file-csv text-emerald-400"></i>
-                        <span class="hidden md:inline">Exporter Données</span>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button onclick="exportBackupJSON()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-medium px-3 py-2 rounded-lg shadow-sm transition flex items-center gap-2" title="Sauvegarder toutes les données (articles, stocks, recettes) en JSON">
+                        <i class="fa-solid fa-download"></i>
+                        <span class="hidden md:inline">Exporter Sauvegarde (.json)</span>
+                        <span class="md:hidden">Sauvegarde</span>
                     </button>
+                    <button onclick="triggerImportJSON()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-medium px-3 py-2 rounded-lg border border-slate-700 transition flex items-center gap-2" title="Restaurer une sauvegarde JSON depuis un fichier">
+                        <i class="fa-solid fa-upload text-sky-400"></i>
+                        <span class="hidden md:inline">Importer Sauvegarde (.json)</span>
+                        <span class="md:hidden">Importer</span>
+                    </button>
+                    <input type="file" id="import-json-input" accept=".json,application/json" class="hidden" onchange="handleImportJSON(event)">
+                    
                     <button onclick="confirmResetData()" class="bg-slate-800 hover:bg-rose-950/60 text-slate-300 hover:text-rose-200 text-xs sm:text-sm font-medium px-3 py-2 rounded-lg border border-slate-700 hover:border-rose-800 transition flex items-center gap-2" title="Réinitialiser avec les données d'exemple">
                         <i class="fa-solid fa-rotate-left text-amber-400"></i>
-                        <span class="hidden md:inline">Réinitialiser Exemple</span>
+                        <span class="hidden lg:inline">Réinitialiser Exemple</span>
                     </button>
                 </div>
             </div>
@@ -114,7 +122,7 @@
             </div>
 
             <!-- Barre d'outils & Filtres -->
-            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-4">
                 <div class="flex flex-wrap items-center gap-2">
                     <button onclick="filterItems('ALL')" class="filter-cat-btn active px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-white transition" data-cat="ALL">Tous</button>
                     <button onclick="filterItems('MP')" class="filter-cat-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition" data-cat="MP">Matières Premières (MP)</button>
@@ -123,12 +131,21 @@
                     <button onclick="filterItems('PF')" class="filter-cat-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition" data-cat="PF">Produits Finis (PF)</button>
                 </div>
 
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
                     <div class="relative flex-grow sm:flex-grow-0">
                         <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
-                        <input type="text" id="search-item-input" oninput="renderItemsTable()" placeholder="Rechercher code ou nom..." class="pl-8 pr-3 py-2 w-full sm:w-56 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none">
+                        <input type="text" id="search-item-input" oninput="renderItemsTable()" placeholder="Rechercher code ou nom..." class="pl-8 pr-3 py-2 w-full sm:w-48 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none">
                     </div>
-                    <button onclick="openItemModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition flex items-center gap-2 whitespace-nowrap">
+                    <button onclick="exportAllDataCSV()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-medium px-3 py-2 rounded-lg border border-slate-300/80 transition flex items-center gap-1.5 whitespace-nowrap" title="Exporter la liste des articles et stocks au format CSV Excel">
+                        <i class="fa-solid fa-file-excel text-emerald-600"></i>
+                        <span>Exporter Stocks (CSV)</span>
+                    </button>
+                    <button onclick="triggerImportStocksCSV()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-medium px-3 py-2 rounded-lg border border-slate-300/80 transition flex items-center gap-1.5 whitespace-nowrap" title="Importer ou mettre à jour les stocks depuis un fichier CSV Excel">
+                        <i class="fa-solid fa-file-import text-sky-600"></i>
+                        <span>Importer Stocks (CSV)</span>
+                    </button>
+                    <input type="file" id="import-csv-input" accept=".csv,text/csv" class="hidden" onchange="handleImportStocksCSV(event)">
+                    <button onclick="openItemModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition flex items-center gap-2 whitespace-nowrap">
                         <i class="fa-solid fa-plus"></i>
                         <span>Nouvel Article</span>
                     </button>
@@ -353,28 +370,31 @@
                                 <h2 class="text-base font-bold text-slate-800">Combinaison Optimale Recommandée</h2>
                                 <p class="text-xs text-slate-500" id="opt-algo-info">Résolution exacte en nombres entiers (Programmation Linéaire / Branch & Bound)</p>
                             </div>
-                            <button onclick="applyOptimalToMrp()" id="btn-apply-mrp" class="hidden bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
-                                <i class="fa-solid fa-arrow-right"></i>
-                                <span>Simuler dans MRP</span>
-                            </button>
-                        </div>
-
-                        <!-- Cartes des quantités optimales -->
-                        <div id="opt-best-combo-cards" class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-                            <!-- Rempli après calcul -->
-                        </div>
-
-                        <!-- Analyse des Goulots d'Étranglement & Utilisation des Stocks -->
-                        <div class="border-t border-slate-100 pt-4">
-                            <div class="flex items-center justify-between mb-3">
-                                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
-                                    <i class="fa-solid fa-gauge-high text-amber-500"></i>
-                                    <span>Taux d'Utilisation des Stocks & Goulots d'Étranglement</span>
-                                </h3>
-                                <span class="text-xs text-slate-400">Trié par saturation</span>
+                            <div class="flex items-center gap-2">
+                                <button onclick="exportOptimalCSV()" id="btn-export-opt" class="hidden bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-lg border border-slate-300/80 transition flex items-center gap-1.5">
+                                    <i class="fa-solid fa-file-csv text-emerald-600"></i>
+                                    <span>Exporter Plan Optimal (CSV)</span>
+                                </button>
+                                <button onclick="applyOptimalToMrp()" id="btn-apply-mrp" class="hidden bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
+                                    <i class="fa-solid fa-arrow-right"></i>
+                                    <span>Simuler dans MRP</span>
+                                </button>
                             </div>
-                            <div id="opt-bottlenecks-list" class="space-y-3">
-                                <!-- Barres de progression d'utilisation des matières -->
+                        </div>
+
+                        <!-- Cartes de résultats de la meilleure combinaison -->
+                        <div id="opt-best-combo-cards" class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+                            <!-- Rempli dynamiquement par renderOptResults() -->
+                        </div>
+
+                        <!-- Analyse des goulots d'étranglement et utilisation des stocks -->
+                        <div>
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+                                <i class="fa-solid fa-gauge-high text-amber-500"></i>
+                                <span>Taux d'Utilisation des Stocks & Goulots d'Étranglement</span>
+                            </h3>
+                            <div id="opt-bottlenecks-list" class="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                                <!-- Rempli dynamiquement par renderOptResults() -->
                             </div>
                         </div>
                     </div>
@@ -1026,6 +1046,10 @@
                 if (comp) unitCost += line.qty * (comp.price || 0);
             });
 
+            // Calculer la consommation consolidée (éclatée jusqu'aux matières de base pour 1 unité)
+            const { rawRequirements: unitExploded } = explodeRequirements({ [product.code]: 1 }, false);
+            const consolidatedEntries = Object.entries(unitExploded);
+
             container.innerHTML = `
                 <div class="flex flex-wrap items-start justify-between gap-4 pb-5 border-b border-slate-200">
                     <div>
@@ -1109,6 +1133,24 @@
                         </tbody>
                     </table>
                 </div>
+
+                <!-- Synthèse de la consommation consolidée (éclatée) pour 1 unité -->
+                ${product.category === 'PF' && consolidatedEntries.length > 0 ? `
+                    <div class="mt-6 pt-4 border-t border-slate-200">
+                        <h4 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2.5 flex items-center gap-1.5">
+                            <i class="fa-solid fa-diagram-project text-emerald-600"></i>
+                            <span>Consommation Consolidée Totale (sans stock SF) pour 1 ${product.unit} de ${product.code}</span>
+                        </h4>
+                        <div class="flex flex-wrap gap-2">
+                            ${consolidatedEntries.map(([code, qty]) => {
+                                const cItem = getItemByCode(code);
+                                return `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200/80 text-xs text-emerald-900">
+                                    <strong class="font-bold">${code}</strong>: ${formatNum(qty, 4)} ${cItem ? cItem.unit : ''}
+                                </span>`;
+                            }).join('')}
+                        </div>
+                    </div>
+                ` : ''}
             `;
         }
 
@@ -1611,15 +1653,18 @@
             const cardsContainer = document.getElementById('opt-best-combo-cards');
             const bottlenecksContainer = document.getElementById('opt-bottlenecks-list');
             const applyBtn = document.getElementById('btn-apply-mrp');
+            const exportOptBtn = document.getElementById('btn-export-opt');
 
             if (!isFeasible) {
                 applyBtn.classList.add('hidden');
+                exportOptBtn.classList.add('hidden');
                 cardsContainer.innerHTML = `<div class="col-span-3 p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-sm font-medium">Impossible de satisfaire les contraintes minimums avec les stocks actuels.</div>`;
                 bottlenecksContainer.innerHTML = '';
                 return;
             }
 
             applyBtn.classList.remove('hidden');
+            exportOptBtn.classList.remove('hidden');
 
             let totalUnits = 0;
             let totalRevenue = 0;
@@ -1738,8 +1783,10 @@
         // =========================================================================
         // 9. EXPORTS CSV
         // =========================================================================
-        function downloadCSV(filename, csvContent) {
-            const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+        // 9. EXPORTS & IMPORTS (JSON SAUVEGARDE COMPLÈTE & CSV EXCEL)
+        // =========================================================================
+        function downloadFile(filename, content, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
             const link = document.createElement("a");
             const url = URL.createObjectURL(blob);
             link.setAttribute("href", url);
@@ -1747,15 +1794,157 @@
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+            URL.revokeObjectURL(url);
         }
 
+        function downloadCSV(filename, csvContent) {
+            downloadFile(filename, "\uFEFF" + csvContent, 'text/csv;charset=utf-8;');
+        }
+
+        // --- SAUVEGARDE & RESTAURATION JSON ---
+        function exportBackupJSON() {
+            const dateStr = new Date().toISOString().slice(0, 10);
+            const backupPayload = {
+                app: "OptiProd MRP",
+                version: "1.0",
+                exportedAt: new Date().toISOString(),
+                data: {
+                    items: appState.items,
+                    boms: appState.boms,
+                    mrpPlan: appState.mrpPlan
+                }
+            };
+            downloadFile(
+                `optiprod_sauvegarde_${dateStr}.json`,
+                JSON.stringify(backupPayload, null, 2),
+                'application/json;charset=utf-8;'
+            );
+            showToast("Sauvegarde complète (.json) téléchargée.", "success");
+        }
+
+        function triggerImportJSON() {
+            const input = document.getElementById('import-json-input');
+            input.value = '';
+            input.click();
+        }
+
+        function handleImportJSON(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const parsed = JSON.parse(e.target.result);
+                    const importedData = parsed.data ? parsed.data : parsed;
+
+                    if (!Array.isArray(importedData.items) || typeof importedData.boms !== 'object') {
+                        throw new Error("Format de fichier JSON invalide.");
+                    }
+
+                    openConfirmModal(
+                        "Importer une sauvegarde JSON",
+                        `Restaurer "${file.name}" (${importedData.items.length} articles) ? Cela remplacera vos données actuelles.`,
+                        () => {
+                            appState.items = importedData.items;
+                            appState.boms = importedData.boms || {};
+                            appState.mrpPlan = importedData.mrpPlan || {};
+                            const firstPf = appState.items.find(i => i.category === 'PF' || i.category === 'SF');
+                            appState.selectedBomProduct = firstPf ? firstPf.code : null;
+                            saveState();
+                            renderAll();
+                            showToast("Sauvegarde JSON importée avec succès !", "success");
+                        }
+                    );
+                } catch (err) {
+                    showToast("Erreur lors de la lecture du fichier JSON : " + err.message, "error");
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // --- IMPORT / EXPORT CSV EXCEL ---
         function exportAllDataCSV() {
             let csv = "Code;Designation;Categorie;Stock;Unite;Prix_Unitaire\n";
             appState.items.forEach(i => {
-                csv += `${i.code};"${i.name}";${i.category};${i.stock};${i.unit};${i.price || 0}\n`;
+                csv += `${i.code};"${(i.name || '').replace(/"/g, '""')}";${i.category};${i.stock};${i.unit};${i.price || 0}\n`;
             });
             downloadCSV("optiprod_stocks_articles.csv", csv);
-            showToast("Export CSV des articles téléchargé.", "success");
+            showToast("Export CSV (Excel) des articles et stocks téléchargé.", "success");
+        }
+
+        function triggerImportStocksCSV() {
+            const input = document.getElementById('import-csv-input');
+            input.value = '';
+            input.click();
+        }
+
+        function handleImportStocksCSV(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const text = e.target.result;
+                    const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+                    if (lines.length < 2) throw new Error("Le fichier CSV semble vide.");
+
+                    // Détecter automatiquement le séparateur (; ou ,)
+                    const sep = lines[0].includes(';') ? ';' : ',';
+                    let updatedCount = 0;
+                    let createdCount = 0;
+
+                    for (let i = 1; i < lines.length; i++) {
+                        // Découper en respectant les guillemets éventuels
+                        const cols = lines[i].split(sep).map(c => c.trim().replace(/^"|"$/g, '').replace(/""/g, '"'));
+                        if (cols.length < 4) continue;
+
+                        const code = cols[0].toUpperCase();
+                        const name = cols[1] || code;
+                        const rawCat = (cols[2] || 'MP').toUpperCase();
+                        const category = ['MP', 'EMB', 'SF', 'PF'].includes(rawCat) ? rawCat : 'MP';
+                        const stock = parseFloat(cols[3].replace(',', '.'));
+                        const unit = cols[4] || 'unité';
+                        const price = cols[5] !== undefined ? parseFloat(cols[5].replace(',', '.')) : 0;
+
+                        if (!code || isNaN(stock)) continue;
+
+                        const existing = getItemByCode(code);
+                        if (existing) {
+                            existing.name = name || existing.name;
+                            existing.category = category;
+                            existing.stock = Math.max(0, stock);
+                            existing.unit = unit || existing.unit;
+                            if (!isNaN(price)) existing.price = Math.max(0, price);
+                            updatedCount++;
+                        } else {
+                            appState.items.push({
+                                code,
+                                name,
+                                category,
+                                stock: Math.max(0, stock),
+                                unit,
+                                price: isNaN(price) ? 0 : Math.max(0, price)
+                            });
+                            if (category === 'PF' || category === 'SF') appState.boms[code] = [];
+                            if (category === 'PF') appState.mrpPlan[code] = 0;
+                            createdCount++;
+                        }
+                    }
+
+                    if (updatedCount === 0 && createdCount === 0) {
+                        throw new Error("Aucune ligne valide trouvée (Format attendu : Code;Designation;Categorie;Stock;Unite;Prix_Unitaire).");
+                    }
+
+                    saveState();
+                    renderAll();
+                    showToast(`Import CSV terminé : ${updatedCount} mis à jour, ${createdCount} ajouté(s).`, "success");
+                } catch (err) {
+                    showToast("Erreur import CSV : " + err.message, "error");
+                }
+            };
+            reader.readAsText(file, 'UTF-8');
         }
 
         function exportMrpCSV() {
@@ -1771,6 +1960,32 @@
             });
             downloadCSV("optiprod_calcul_besoins_mrp.csv", csv);
             showToast("Export CSV du calcul MRP téléchargé.", "success");
+        }
+
+        function exportOptimalCSV() {
+            if (!appState.lastOptimalCombo) return;
+            const useSfStock = document.getElementById('opt-use-sf-stock').checked;
+            const { rawRequirements } = explodeRequirements(appState.lastOptimalCombo, useSfStock);
+
+            let csv = "=== PLAN DE PRODUCTION OPTIMAL ===\n";
+            csv += "Code_Produit;Designation;Quantite_Optimale;Unite;Valeur_Unitaire;Valeur_Totale\n";
+            Object.entries(appState.lastOptimalCombo).forEach(([code, qty]) => {
+                const item = getItemByCode(code);
+                if (!item) return;
+                csv += `${code};"${item.name}";${qty};${item.unit};${item.price || 0};${(qty * (item.price || 0)).toFixed(2)}\n`;
+            });
+
+            csv += "\n=== CONSOMMATION DES STOCKS ASSOCIEE ===\n";
+            csv += "Code_Composant;Designation;Categorie;Quantite_Utilisee;Stock_Initial;Stock_Restant;Taux_Utilisation_%\n";
+            Object.entries(rawRequirements).forEach(([code, used]) => {
+                const item = getItemByCode(code);
+                if (!item) return;
+                const pct = item.stock > 0 ? ((used / item.stock) * 100).toFixed(1) : "0";
+                csv += `${code};"${item.name}";${item.category};${used.toFixed(4)};${item.stock};${(item.stock - used).toFixed(4)};${pct}%\n`;
+            });
+
+            downloadCSV("optiprod_plan_optimal.csv", csv);
+            showToast("Export CSV du plan optimal téléchargé.", "success");
         }
 
         // Démarrer l'application au chargement
