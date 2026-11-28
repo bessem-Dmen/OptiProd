@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OptiProd MRP - Gestion Industrielle, BOM & PostgreSQL</title>
+    <title>OptiProd MRP - Gestion Industrielle, BOM & SQL Server</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- SheetJS (XLSX) pour export/import Excel natif .xlsx -->
@@ -58,7 +58,7 @@
                         <h1 class="text-lg sm:text-xl font-bold tracking-tight flex items-center gap-2">
                             OptiProd <span class="text-xs font-semibold uppercase tracking-wider bg-indigo-500/30 text-indigo-200 px-2 py-0.5 rounded border border-indigo-400/30">MRP • SQL • DA</span>
                         </h1>
-                        <p class="text-xs text-slate-400 hidden sm:block">Nomenclatures multi-niveaux, Optimisation & Export PostgreSQL</p>
+                        <p class="text-xs text-slate-400 hidden sm:block">Nomenclatures multi-niveaux, Optimisation & Export SQL Server (SSMS)</p>
                     </div>
                 </div>
 
@@ -78,8 +78,8 @@
                         </select>
                     </div>
 
-                    <!-- Export SQL PostgreSQL -->
-                    <button onclick="exportPostgreSQL()" class="bg-sky-600 hover:bg-sky-500 text-white text-xs sm:text-sm font-medium px-3 py-2 rounded-lg shadow-sm transition flex items-center gap-1.5" title="Générer le script SQL INSERT compatible avec schema.sql (PostgreSQL)">
+                    <!-- Export SQL Server (SSMS) -->
+                    <button onclick="exportSQLServer()" class="bg-sky-600 hover:bg-sky-500 text-white text-xs sm:text-sm font-medium px-3 py-2 rounded-lg shadow-sm transition flex items-center gap-1.5" title="Générer le script T-SQL compatible avec SQL Server / SSMS">
                         <i class="fa-solid fa-database"></i>
                         <span class="hidden md:inline">Exporter SQL (.sql)</span>
                         <span class="md:hidden">SQL</span>
@@ -92,7 +92,7 @@
                         <span class="lg:hidden">JSON</span>
                     </button>
 
-                    <!-- Import JSON / SQL -->
+                    <!-- Import JSON -->
                     <button onclick="triggerImportJSON()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-medium px-3 py-2 rounded-lg border border-slate-700 transition flex items-center gap-1.5" title="Restaurer une sauvegarde JSON">
                         <i class="fa-solid fa-upload text-sky-400"></i>
                         <span class="hidden lg:inline">Importer (.json)</span>
@@ -485,9 +485,9 @@
                         <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
                             <div>
                                 <h2 class="text-base font-bold text-slate-800">Journal des Mouvements de Stock</h2>
-                                <p class="text-xs text-slate-500">Traçabilité complète exportable directement vers PostgreSQL (<code>stock_movement</code>)</p>
+                                <p class="text-xs text-slate-500">Traçabilité complète exportable directement vers SQL Server / SSMS (<code>dbo.stock_movement</code>)</p>
                             </div>
-                            <button onclick="exportPostgreSQL()" class="bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold px-3 py-2 rounded-lg transition flex items-center gap-1.5">
+                            <button onclick="exportSQLServer()" class="bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold px-3 py-2 rounded-lg transition flex items-center gap-1.5">
                                 <i class="fa-solid fa-database"></i>
                                 <span>Générer Script SQL</span>
                             </button>
@@ -600,7 +600,7 @@
     </div>
 
     <!-- ===================================================================== -->
-    <!-- SCRIPT LOGIQUE MÉTIER, MRP, OPTIMISATION & EXPORT POSTGRESQL          -->
+    <!-- SCRIPT LOGIQUE MÉTIER, MRP, OPTIMISATION & EXPORT SQL SERVER (SSMS)   -->
     <!-- ===================================================================== -->
     <script>
         const STORAGE_KEY = 'optiprod_mrp_data_v1';
@@ -993,107 +993,97 @@
         }
 
         function renderItemsTable() {
-            const search = (document.getElementById('search-item-input')?.value || '').trim().toLowerCase();
+            const searchInput = document.getElementById('search-item-input');
+            const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+            const tbody = document.getElementById('items-table-body');
+            if (!tbody) return;
+
             const filtered = appState.items.filter(item => {
                 const matchCat = appState.currentCatFilter === 'ALL' || item.category === appState.currentCatFilter;
-                const matchSearch = !search ||
-                    item.code.toLowerCase().includes(search) ||
-                    item.name.toLowerCase().includes(search);
-                return matchCat && matchSearch;
+                const matchText = !query || item.code.toLowerCase().includes(query) || item.name.toLowerCase().includes(query);
+                return matchCat && matchText;
             });
 
-            const tbody = document.getElementById('items-table-body');
             if (filtered.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="8" class="py-8 text-center text-slate-400">Aucun article trouvé.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" class="py-8 text-center text-slate-400 text-sm">Aucun article trouvé.</td></tr>`;
                 return;
             }
 
             tbody.innerHTML = filtered.map(item => {
-                const valo = item.category === 'CH' ? 0 : (Number(item.stock) || 0) * (Number(item.price) || 0);
+                const val = item.category === 'CH' ? 0 : (Number(item.stock) || 0) * (Number(item.price) || 0);
                 return `
                     <tr class="hover:bg-slate-50/80 transition">
                         <td class="py-3 px-4 font-bold text-slate-800">${escapeHtml(item.code)}</td>
                         <td class="py-3 px-4 text-slate-700">${escapeHtml(item.name)}</td>
                         <td class="py-3 px-4">${getCategoryBadge(item.category)}</td>
                         <td class="py-3 px-4 text-right">
-                            <input type="number" step="any" min="0" value="${Number(item.stock) || 0}"
-                                onchange="inlineUpdateStock('${escapeHtml(item.code)}', this.value)"
-                                class="w-28 text-right font-semibold text-slate-800 bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none">
+                            <input type="number" step="any" min="0" value="${item.stock}" onchange="updateItemStockInline('${escapeHtml(item.code)}', this.value)" class="w-28 text-right font-semibold text-slate-800 border border-slate-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-indigo-500 outline-none">
                         </td>
-                        <td class="py-3 px-4 text-slate-600">${escapeHtml(item.unit)}</td>
-                        <td class="py-3 px-4 text-right text-slate-700 font-medium">${formatDA(item.price)}</td>
-                        <td class="py-3 px-4 text-right font-semibold text-slate-800">${item.category === 'CH' ? '<span class="text-slate-400">-</span>' : formatDA(valo)}</td>
-                        <td class="py-3 px-4 text-center whitespace-nowrap">
-                            <button onclick="openItemModal('${escapeHtml(item.code)}')" class="text-indigo-600 hover:bg-indigo-50 p-2 rounded-lg transition" title="Modifier">
-                                <i class="fa-solid fa-pen-to-square"></i>
-                            </button>
-                            <button onclick="deleteItem('${escapeHtml(item.code)}')" class="text-rose-600 hover:bg-rose-50 p-2 rounded-lg transition" title="Supprimer">
-                                <i class="fa-solid fa-trash"></i>
-                            </button>
+                        <td class="py-3 px-4 text-slate-500 text-xs">${escapeHtml(item.unit)}</td>
+                        <td class="py-3 px-4 text-right font-medium text-slate-700">${formatDA(item.price)}</td>
+                        <td class="py-3 px-4 text-right font-semibold text-slate-800">${formatDA(val)}</td>
+                        <td class="py-3 px-4 text-center">
+                            <div class="inline-flex items-center gap-1.5">
+                                <button onclick="openItemModal('${escapeHtml(item.code)}')" class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition" title="Modifier l'article">
+                                    <i class="fa-solid fa-pen-to-square"></i>
+                                </button>
+                                <button onclick="deleteItem('${escapeHtml(item.code)}')" class="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition" title="Supprimer l'article">
+                                    <i class="fa-solid fa-trash-can"></i>
+                                </button>
+                            </div>
                         </td>
                     </tr>
                 `;
             }).join('');
         }
 
-        function inlineUpdateStock(code, rawVal) {
+        function updateItemStockInline(code, rawVal) {
             if (!hasPermission('STOCK_EDIT')) {
-                showToast(`Le rôle ${appState.activeRole} ne permet pas de modifier le stock.`, "error");
+                showToast(`Le rôle ${appState.activeRole} ne peut pas modifier les stocks.`, "error");
                 renderItemsTable();
                 return;
             }
             const item = getItemByCode(code);
             if (!item) return;
             const parsed = parseFrenchNumber(rawVal);
-            const newStock = isNaN(parsed) ? 0 : Math.max(0, parsed);
-            const delta = newStock - (Number(item.stock) || 0);
-            item.stock = newStock;
-
-            if (Math.abs(delta) > 1e-9) {
-                appState.movements.unshift({
-                    id: generateUUID(),
-                    clientOperationId: generateUUID(),
-                    articleCode: item.code,
-                    movementType: 'ADJUSTMENT',
-                    quantity: delta,
-                    unitCostDa: item.price || 0,
-                    reference: 'AJUST-DIRECT',
-                    warehouseFrom: '',
-                    warehouseTo: '',
-                    role: appState.activeRole,
-                    createdAt: new Date().toISOString()
-                });
-            }
-
+            item.stock = isNaN(parsed) || parsed < 0 ? 0 : parsed;
             saveState();
             renderKpis();
             renderItemsTable();
-            showToast(`Stock de ${item.code} mis à jour (${formatNumber(newStock, 4)} ${item.unit}).`, "success");
+            showToast(`Stock de ${item.code} mis à jour.`, "success");
         }
 
         function openItemModal(editCode = null) {
             const modal = document.getElementById('item-modal');
-            const title = document.getElementById('item-modal-title');
+            const titleEl = document.getElementById('item-modal-title');
             const origInput = document.getElementById('item-edit-original-code');
+            const codeInput = document.getElementById('item-code');
+            const catInput = document.getElementById('item-category');
+            const nameInput = document.getElementById('item-name');
+            const stockInput = document.getElementById('item-stock');
+            const unitInput = document.getElementById('item-unit');
+            const priceInput = document.getElementById('item-price');
 
             if (editCode) {
                 const item = getItemByCode(editCode);
                 if (!item) return;
-                title.textContent = `Modifier l'Article : ${item.code}`;
+                titleEl.textContent = `Modifier l'article ${item.code}`;
                 origInput.value = item.code;
-                document.getElementById('item-code').value = item.code;
-                document.getElementById('item-category').value = item.category;
-                document.getElementById('item-name').value = item.name;
-                document.getElementById('item-stock').value = item.stock;
-                document.getElementById('item-unit').value = item.unit;
-                document.getElementById('item-price').value = item.price;
+                codeInput.value = item.code;
+                catInput.value = item.category;
+                nameInput.value = item.name;
+                stockInput.value = item.stock;
+                unitInput.value = item.unit;
+                priceInput.value = item.price;
             } else {
-                title.textContent = "Ajouter un Article";
-                origInput.value = '';
-                document.getElementById('item-form').reset();
-                document.getElementById('item-stock').value = '0';
-                document.getElementById('item-unit').value = 'Unité';
-                document.getElementById('item-price').value = '0';
+                titleEl.textContent = "Ajouter un Article";
+                origInput.value = "";
+                codeInput.value = "";
+                catInput.value = "MP";
+                nameInput.value = "";
+                stockInput.value = 0;
+                unitInput.value = "KG";
+                priceInput.value = 0;
             }
 
             modal.classList.remove('hidden');
@@ -1111,94 +1101,85 @@
             const origCode = document.getElementById('item-edit-original-code').value.trim().toUpperCase();
             const newCode = document.getElementById('item-code').value.trim().toUpperCase();
             const category = document.getElementById('item-category').value;
-            const name = document.getElementById('item-name').value.trim() || newCode;
-            const stock = Math.max(0, parseFloat(document.getElementById('item-stock').value) || 0);
+            const name = document.getElementById('item-name').value.trim();
+            const stock = Math.max(0, parseFrenchNumber(document.getElementById('item-stock').value) || 0);
             const unit = document.getElementById('item-unit').value.trim() || 'Unité';
-            const price = Math.max(0, parseFloat(document.getElementById('item-price').value) || 0);
+            const price = Math.max(0, parseFrenchNumber(document.getElementById('item-price').value) || 0);
 
-            if (!newCode) return;
-
-            const duplicate = getItemByCode(newCode);
-            if (duplicate && duplicate.code !== origCode) {
-                showToast(`La référence "${newCode}" existe déjà.`, "error");
-                return;
-            }
+            if (!newCode || !name) return;
 
             if (origCode) {
-                const item = getItemByCode(origCode);
-                if (item) {
-                    item.code = newCode;
-                    item.category = category;
-                    item.name = name;
-                    item.stock = stock;
-                    item.unit = unit;
-                    item.price = price;
-
-                    if (origCode !== newCode) {
-                        if (appState.boms[origCode]) {
-                            appState.boms[newCode] = appState.boms[origCode];
-                            delete appState.boms[origCode];
-                        }
-                        if (appState.bomVersions[origCode]) {
-                            appState.bomVersions[newCode] = appState.bomVersions[origCode];
-                            delete appState.bomVersions[origCode];
-                        }
-                        Object.values(appState.boms).forEach(lines => {
-                            lines.forEach(l => { if (l.itemCode === origCode) l.itemCode = newCode; });
+                const existing = getItemByCode(origCode);
+                if (!existing) return;
+                if (origCode !== newCode && getItemByCode(newCode)) {
+                    showToast(`La référence ${newCode} existe déjà.`, "error");
+                    return;
+                }
+                if (origCode !== newCode) {
+                    if (appState.boms[origCode]) {
+                        appState.boms[newCode] = appState.boms[origCode];
+                        delete appState.boms[origCode];
+                    }
+                    if (appState.bomVersions[origCode]) {
+                        appState.bomVersions[newCode] = appState.bomVersions[origCode];
+                        delete appState.bomVersions[origCode];
+                    }
+                    Object.values(appState.boms).forEach(lines => {
+                        lines.forEach(l => {
+                            if (l.itemCode === origCode) l.itemCode = newCode;
                         });
-                        if (appState.mrpPlan[origCode] !== undefined) {
-                            appState.mrpPlan[newCode] = appState.mrpPlan[origCode];
-                            delete appState.mrpPlan[origCode];
-                        }
-                        if (appState.selectedBomProduct === origCode) {
-                            appState.selectedBomProduct = newCode;
-                        }
+                    });
+                    if (appState.mrpPlan[origCode] !== undefined) {
+                        appState.mrpPlan[newCode] = appState.mrpPlan[origCode];
+                        delete appState.mrpPlan[origCode];
+                    }
+                    if (appState.selectedBomProduct === origCode) {
+                        appState.selectedBomProduct = newCode;
                     }
                 }
+                existing.code = newCode;
+                existing.category = category;
+                existing.name = name;
+                existing.stock = stock;
+                existing.unit = unit;
+                existing.price = price;
+                showToast(`Article ${newCode} mis à jour.`, "success");
             } else {
+                if (getItemByCode(newCode)) {
+                    showToast(`La référence ${newCode} existe déjà.`, "error");
+                    return;
+                }
                 appState.items.push({ code: newCode, name, category, stock, unit, price });
-                if ((category === 'PF' || category === 'SF') && !appState.boms[newCode]) {
-                    appState.boms[newCode] = [];
-                    appState.bomVersions[newCode] = 'V1.0';
-                }
-                if (category === 'PF' && appState.mrpPlan[newCode] === undefined) {
-                    appState.mrpPlan[newCode] = 0;
-                }
+                if (category === 'PF') appState.mrpPlan[newCode] = 0;
+                showToast(`Article ${newCode} ajouté.`, "success");
             }
 
-            if (category === 'PF' && appState.mrpPlan[newCode] === undefined) {
-                appState.mrpPlan[newCode] = 0;
-            }
-
-            closeItemModal();
             saveState();
+            closeItemModal();
             renderAll();
-            showToast(`Article ${newCode} enregistré.`, "success");
         }
 
         function deleteItem(code) {
-            const upper = String(code).trim().toUpperCase();
+            const item = getItemByCode(code);
+            if (!item) return;
             openConfirmModal(
-                "Supprimer l'article",
-                `Supprimer définitivement "${upper}" ainsi que ses références dans les recettes et plans ?`,
+                `Supprimer ${item.code}`,
+                `Voulez-vous supprimer l'article "${item.name}" (${item.code}) et le retirer des nomenclatures ?`,
                 () => {
-                    appState.items = appState.items.filter(i => i.code !== upper);
-                    delete appState.boms[upper];
-                    delete appState.bomVersions[upper];
-                    delete appState.mrpPlan[upper];
-                    Object.keys(appState.boms).forEach(parentCode => {
-                        appState.boms[parentCode] = (appState.boms[parentCode] || []).filter(line => line.itemCode !== upper);
+                    appState.items = appState.items.filter(i => i.code !== item.code);
+                    delete appState.boms[item.code];
+                    delete appState.bomVersions[item.code];
+                    delete appState.mrpPlan[item.code];
+                    Object.keys(appState.boms).forEach(pCode => {
+                        appState.boms[pCode] = appState.boms[pCode].filter(l => l.itemCode !== item.code);
                     });
-                    if (appState.lastOptimalCombo) {
-                        delete appState.lastOptimalCombo[upper];
-                    }
-                    if (appState.selectedBomProduct === upper) {
+                    if (appState.selectedBomProduct === item.code) {
                         const next = appState.items.find(i => i.category === 'PF' || i.category === 'SF');
                         appState.selectedBomProduct = next ? next.code : null;
                     }
                     saveState();
                     renderAll();
-                    showToast(`Article ${upper} supprimé.`, "info");
+                    showToast(`Article ${item.code} supprimé.`, "info");
                 }
             );
         }
@@ -1206,611 +1187,337 @@
         // =========================================================================
         // 4. NOMENCLATURES MULTI-NIVEAUX (ONGLET 2)
         // =========================================================================
-        function renderBomTab() {
-            const pfItems = appState.items.filter(i => i.category === 'PF');
-            const sfItems = appState.items.filter(i => i.category === 'SF');
-
-            document.getElementById('count-pf-bom').textContent = pfItems.length;
-            document.getElementById('count-sf-bom').textContent = sfItems.length;
-
-            if (!appState.selectedBomProduct || !getItemByCode(appState.selectedBomProduct)) {
-                const first = pfItems[0] || sfItems[0];
-                appState.selectedBomProduct = first ? first.code : null;
-            }
-
-            const renderListItem = (item) => {
-                const isSelected = appState.selectedBomProduct === item.code;
-                const linesCount = (appState.boms[item.code] || []).length;
-                return `
-                    <button onclick="selectBomProduct('${escapeHtml(item.code)}')" class="w-full text-left px-3.5 py-2.5 rounded-xl border transition flex items-center justify-between ${isSelected ? 'bg-indigo-50 border-indigo-400 text-indigo-900 font-semibold' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}">
-                        <div class="truncate pr-2">
-                            <span class="text-xs font-bold block">${escapeHtml(item.code)}</span>
-                            <span class="text-xs text-slate-500 truncate block">${escapeHtml(item.name)}</span>
-                        </div>
-                        <span class="text-[11px] px-2 py-0.5 rounded-full ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'} shrink-0">${linesCount} ligne(s)</span>
-                    </button>
-                `;
-            };
-
-            document.getElementById('bom-pf-list').innerHTML = pfItems.length
-                ? pfItems.map(renderListItem).join('')
-                : `<p class="text-xs text-slate-400 italic">Aucun Produit Fini (PF).</p>`;
-
-            document.getElementById('bom-sf-list').innerHTML = sfItems.length
-                ? sfItems.map(renderListItem).join('')
-                : `<p class="text-xs text-slate-400 italic">Aucun Semi-Fini (SF).</p>`;
-
-            renderBomEditor();
-        }
-
         function selectBomProduct(code) {
             appState.selectedBomProduct = code;
             renderBomTab();
         }
 
+        function renderBomTab() {
+            const pfList = appState.items.filter(i => i.category === 'PF');
+            const sfList = appState.items.filter(i => i.category === 'SF');
+
+            document.getElementById('count-pf-bom').textContent = pfList.length;
+            document.getElementById('count-sf-bom').textContent = sfList.length;
+
+            if (!appState.selectedBomProduct || !getItemByCode(appState.selectedBomProduct)) {
+                const first = pfList[0] || sfList[0];
+                appState.selectedBomProduct = first ? first.code : null;
+            }
+
+            const renderNavList = (list) => list.map(prod => {
+                const active = prod.code === appState.selectedBomProduct;
+                const lineCount = (appState.boms[prod.code] || []).length;
+                return `
+                    <button onclick="selectBomProduct('${escapeHtml(prod.code)}')" class="w-full text-left p-3 rounded-xl border transition flex items-center justify-between gap-2 ${active ? 'bg-indigo-50/80 border-indigo-400 shadow-xs' : 'bg-white border-slate-200 hover:border-slate-300'}">
+                        <div class="min-w-0">
+                            <p class="text-xs font-bold ${active ? 'text-indigo-900' : 'text-slate-800'} truncate">${escapeHtml(prod.code)}</p>
+                            <p class="text-[11px] text-slate-500 truncate">${escapeHtml(prod.name)}</p>
+                        </div>
+                        <span class="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full ${active ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}">${lineCount} ligne(s)</span>
+                    </button>
+                `;
+            }).join('');
+
+            document.getElementById('bom-pf-list').innerHTML = renderNavList(pfList) || `<p class="text-xs text-slate-400">Aucun Produit Fini.</p>`;
+            document.getElementById('bom-sf-list').innerHTML = renderNavList(sfList) || `<p class="text-xs text-slate-400">Aucun Semi-Fini.</p>`;
+
+            renderBomEditor();
+        }
+
+        function computeUnitCostRecursive(code, visited = new Set()) {
+            const item = getItemByCode(code);
+            if (!item) return 0;
+            if (visited.has(code)) return item.price || 0;
+
+            const lines = appState.boms[code];
+            if (!lines || lines.length === 0) {
+                return Number(item.price) || 0;
+            }
+
+            const nextVisited = new Set(visited);
+            nextVisited.add(code);
+
+            let total = 0;
+            lines.forEach(line => {
+                const comp = getItemByCode(line.itemCode);
+                if (!comp) return;
+                const grossQty = (Number(line.qty) || 0) * (1 + (Number(line.scrapRate) || 0) / 100);
+                const compUnitCost = computeUnitCostRecursive(comp.code, nextVisited);
+                total += grossQty * compUnitCost;
+            });
+            return total;
+        }
+
         function renderBomEditor() {
             const container = document.getElementById('bom-editor-container');
-            const target = getItemByCode(appState.selectedBomProduct);
+            if (!container) return;
 
-            if (!target) {
-                container.innerHTML = `<div class="text-center py-12 text-slate-400">Créez un Produit Fini (PF) ou Semi-Fini (SF) dans l'onglet 1 pour configurer sa nomenclature.</div>`;
+            const parent = getItemByCode(appState.selectedBomProduct);
+            if (!parent) {
+                container.innerHTML = `<p class="text-sm text-slate-400 text-center py-10">Sélectionnez un Produit Fini (PF) ou Semi-Fini (SF) à gauche.</p>`;
                 return;
             }
 
-            const lines = appState.boms[target.code] || [];
-            const version = appState.bomVersions[target.code] || 'V1.0';
-            const unitCost = computeUnitBomCost(target.code);
-            const availableComponents = appState.items.filter(i => i.code !== target.code);
+            const lines = appState.boms[parent.code] || [];
+            const version = appState.bomVersions[parent.code] || 'V1.0';
+            const unitCost = computeUnitCostRecursive(parent.code);
+            const availableComponents = appState.items.filter(i => i.code !== parent.code && i.category !== 'PF');
 
             container.innerHTML = `
-                <div class="flex flex-wrap items-start justify-between gap-4 pb-4 border-b border-slate-100">
+                <div class="flex flex-wrap items-start justify-between gap-3 pb-4 border-b border-slate-100">
                     <div>
-                        <div class="flex items-center gap-2 flex-wrap">
-                            <h2 class="text-lg font-bold text-slate-900">${escapeHtml(target.code)}</h2>
-                            ${getCategoryBadge(target.category)}
-                            <span class="text-xs font-semibold bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-full border border-slate-200">${escapeHtml(version)}</span>
+                        <div class="flex items-center gap-2.5">
+                            <h2 class="text-xl font-bold text-slate-800">${escapeHtml(parent.code)}</h2>
+                            ${getCategoryBadge(parent.category)}
+                            <span class="text-xs font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">${escapeHtml(version)}</span>
                         </div>
-                        <p class="text-sm text-slate-500 mt-0.5">${escapeHtml(target.name)} • Coût matière estimé : <strong class="text-indigo-700">${formatDA(unitCost)}</strong> / ${escapeHtml(target.unit)}</p>
+                        <p class="text-sm text-slate-500 mt-1">${escapeHtml(parent.name)} • Coût matière estimé : <strong class="text-indigo-600">${formatDA(unitCost)}</strong> / Unité</p>
                     </div>
                 </div>
 
-                <!-- Formulaire d'ajout / modification de ligne BOM -->
-                <form onsubmit="addBomLine(event)" class="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200/80 grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-                    <input type="hidden" id="bom-edit-index" value="">
-                    <div class="sm:col-span-5">
+                <!-- Formulaire d'ajout de composant -->
+                <form onsubmit="addBomLine(event)" class="mt-4 bg-slate-50 p-4 rounded-xl border border-slate-200/80 grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                    <div class="sm:col-span-6">
                         <label class="block text-xs font-semibold text-slate-700 mb-1">Composant (MP, EMB, SF, CH)</label>
-                        <select id="bom-comp-select" required class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
-                            ${availableComponents.map(c => `<option value="${escapeHtml(c.code)}">${escapeHtml(c.code)} — ${escapeHtml(c.name)} (${c.category}, ${c.unit})</option>`).join('')}
+                        <select id="bom-add-comp" required class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
+                            ${availableComponents.map(c => `<option value="${escapeHtml(c.code)}">${escapeHtml(c.code)} — ${escapeHtml(c.name)} (${escapeHtml(c.category)}, ${escapeHtml(c.unit)})</option>`).join('')}
                         </select>
                     </div>
-                    <div class="sm:col-span-3">
-                        <label class="block text-xs font-semibold text-slate-700 mb-1">Qté pour 1 ${escapeHtml(target.unit)}</label>
-                        <input type="number" id="bom-qty-input" step="any" min="0.000001" required placeholder="ex: 0.5" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <div class="sm:col-span-2">
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Qté / Unité</label>
+                        <input type="number" id="bom-add-qty" step="any" min="0.000001" required placeholder="ex: 0.5" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
                     </div>
                     <div class="sm:col-span-2">
                         <label class="block text-xs font-semibold text-slate-700 mb-1">Perte (%)</label>
-                        <input type="number" id="bom-scrap-input" step="any" min="0" max="99" value="0" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <input type="number" id="bom-add-scrap" step="any" min="0" max="100" value="0" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
                     </div>
-                    <div class="sm:col-span-2 flex items-center gap-1.5">
-                        <button type="submit" id="bom-submit-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-3 rounded-lg transition flex items-center justify-center gap-1.5">
+                    <div class="sm:col-span-2">
+                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-3 rounded-lg shadow-sm transition flex items-center justify-center gap-1.5">
                             <i class="fa-solid fa-plus"></i>
                             <span>Ajouter</span>
-                        </button>
-                        <button type="button" id="bom-cancel-edit-btn" onclick="cancelEditBomLine()" class="hidden bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-semibold py-2 px-2.5 rounded-lg transition" title="Annuler la modification">
-                            <i class="fa-solid fa-xmark"></i>
                         </button>
                     </div>
                 </form>
 
-                <!-- Tableau des lignes de recette -->
+                <!-- Tableau des lignes de nomenclature avec modification directe -->
                 <div class="mt-5 overflow-x-auto">
                     <table class="w-full text-left border-collapse text-sm">
                         <thead>
-                            <tr class="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase">
-                                <th class="py-2.5 px-3">Composant</th>
-                                <th class="py-2.5 px-3">Catégorie</th>
-                                <th class="py-2.5 px-3 text-right">Qté / Unité</th>
-                                <th class="py-2.5 px-3 text-right">Perte (%)</th>
-                                <th class="py-2.5 px-3 text-right">Qté Brute / Unité</th>
-                                <th class="py-2.5 px-3 text-center">Actions</th>
+                            <tr class="border-b border-slate-200 text-xs font-semibold text-slate-400 uppercase">
+                                <th class="py-3 px-2">Composant</th>
+                                <th class="py-3 px-2">Catégorie</th>
+                                <th class="py-3 px-2 text-right">Qté / Unité</th>
+                                <th class="py-3 px-2 text-right">Perte (%)</th>
+                                <th class="py-3 px-2 text-right">Qté Brute / Unité</th>
+                                <th class="py-3 px-2 text-center">Actions</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
-                            ${lines.length === 0
-                                ? `<tr><td colspan="6" class="py-8 text-center text-slate-400">Aucune ligne dans cette nomenclature. Ajoutez un composant ci-dessus.</td></tr>`
-                                : lines.map((line, idx) => {
-                                    const comp = getItemByCode(line.itemCode);
-                                    const scrap = Number(line.scrapRate) || 0;
-                                    const gross = (Number(line.qty) || 0) * (1 + scrap / 100);
-                                    return `
-                                        <tr class="hover:bg-slate-50/70">
-                                            <td class="py-2.5 px-3">
-                                                <span class="font-bold text-slate-800">${escapeHtml(line.itemCode)}</span>
-                                                <span class="text-xs text-slate-500 ml-1">${escapeHtml(comp ? comp.name : '')}</span>
-                                            </td>
-                                            <td class="py-2.5 px-3">${comp ? getCategoryBadge(comp.category) : '-'}</td>
-                                            <td class="py-2.5 px-3 text-right whitespace-nowrap">
-                                                <input type="number" step="any" min="0.000001" value="${Number(line.qty) || 0}"
-                                                    onchange="inlineUpdateBomLine('${escapeHtml(target.code)}', ${idx}, 'qty', this.value)"
-                                                    class="w-24 text-right font-semibold text-slate-800 bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none">
-                                                <span class="text-xs text-slate-500 ml-1">${escapeHtml(comp ? comp.unit : '')}</span>
-                                            </td>
-                                            <td class="py-2.5 px-3 text-right whitespace-nowrap">
-                                                <input type="number" step="any" min="0" max="99" value="${scrap}"
-                                                    onchange="inlineUpdateBomLine('${escapeHtml(target.code)}', ${idx}, 'scrapRate', this.value)"
-                                                    class="w-16 text-right font-medium text-amber-700 bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none">
-                                                <span class="text-xs text-amber-700 ml-0.5">%</span>
-                                            </td>
-                                            <td class="py-2.5 px-3 text-right font-bold text-slate-800 whitespace-nowrap">${formatNumber(gross, 4)} ${escapeHtml(comp ? comp.unit : '')}</td>
-                                            <td class="py-2.5 px-3 text-center whitespace-nowrap">
-                                                <button onclick="startEditBomLine(${idx})" class="text-indigo-600 hover:bg-indigo-50 p-1.5 rounded-lg transition" title="Modifier la ligne">
+                            ${lines.length === 0 ? `<tr><td colspan="6" class="py-6 text-center text-slate-400 text-xs">Aucun composant dans cette recette.</td></tr>` : lines.map((line, idx) => {
+                                const comp = getItemByCode(line.itemCode);
+                                if (!comp) return '';
+                                const gross = (Number(line.qty) || 0) * (1 + (Number(line.scrapRate) || 0) / 100);
+                                return `
+                                    <tr class="hover:bg-slate-50/70">
+                                        <td class="py-3 px-2">
+                                            <span class="font-bold text-slate-800">${escapeHtml(comp.code)}</span>
+                                            <span class="text-slate-500 text-xs ml-1">${escapeHtml(comp.name)}</span>
+                                        </td>
+                                        <td class="py-3 px-2">${getCategoryBadge(comp.category)}</td>
+                                        <td class="py-3 px-2 text-right">
+                                            <div class="inline-flex items-center justify-end gap-1">
+                                                <input type="number" id="bom-qty-input-${idx}" step="any" min="0.000001" value="${line.qty}" onchange="updateBomLineValues(${idx})" class="w-24 text-right font-semibold text-slate-800 border border-slate-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-indigo-500 outline-none">
+                                                <span class="text-xs text-slate-400">${escapeHtml(comp.unit)}</span>
+                                            </div>
+                                        </td>
+                                        <td class="py-3 px-2 text-right">
+                                            <div class="inline-flex items-center justify-end gap-1">
+                                                <input type="number" id="bom-scrap-input-${idx}" step="any" min="0" max="100" value="${line.scrapRate || 0}" onchange="updateBomLineValues(${idx})" class="w-16 text-right font-semibold text-amber-700 border border-slate-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-indigo-500 outline-none">
+                                                <span class="text-xs text-slate-400">%</span>
+                                            </div>
+                                        </td>
+                                        <td class="py-3 px-2 text-right font-bold text-slate-800">${formatNumber(gross, 4)} ${escapeHtml(comp.unit)}</td>
+                                        <td class="py-3 px-2 text-center">
+                                            <div class="inline-flex items-center gap-1">
+                                                <button type="button" onclick="focusBomLineEdit(${idx})" class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition" title="Modifier cette ligne">
                                                     <i class="fa-solid fa-pen-to-square"></i>
                                                 </button>
-                                                <button onclick="removeBomLine('${escapeHtml(target.code)}', ${idx})" class="text-rose-600 hover:bg-rose-50 p-1.5 rounded-lg transition" title="Retirer">
-                                                    <i class="fa-solid fa-trash"></i>
+                                                <button type="button" onclick="removeBomLine(${idx})" class="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition" title="Retirer ce composant">
+                                                    <i class="fa-solid fa-trash-can"></i>
                                                 </button>
-                                            </td>
-                                        </tr>
-                                    `;
-                                }).join('')
-                            }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                `;
+                            }).join('')}
                         </tbody>
                     </table>
                 </div>
             `;
         }
 
-        function computeUnitBomCost(code, visited = new Set()) {
-            const item = getItemByCode(code);
-            if (!item) return 0;
-            const lines = appState.boms[code] || [];
-            if (lines.length === 0) return Number(item.price) || 0;
-
-            let total = 0;
-            lines.forEach(line => {
-                if (visited.has(line.itemCode)) return;
-                const comp = getItemByCode(line.itemCode);
-                if (!comp) return;
-                const grossQty = (Number(line.qty) || 0) * (1 + (Number(line.scrapRate) || 0) / 100);
-                if (comp.category === 'SF' && (appState.boms[comp.code] || []).length > 0) {
-                    const nextVisited = new Set(visited);
-                    nextVisited.add(comp.code);
-                    total += grossQty * computeUnitBomCost(comp.code, nextVisited);
-                } else {
-                    total += grossQty * (Number(comp.price) || 0);
-                }
-            });
-            return total;
-        }
-
-        function startEditBomLine(index) {
-            const parentCode = appState.selectedBomProduct;
-            if (!parentCode || !appState.boms[parentCode] || !appState.boms[parentCode][index]) return;
-            const line = appState.boms[parentCode][index];
-
-            const compSelect = document.getElementById('bom-comp-select');
-            const qtyInput = document.getElementById('bom-qty-input');
-            const scrapInput = document.getElementById('bom-scrap-input');
-            const editIdxInput = document.getElementById('bom-edit-index');
-            const submitBtn = document.getElementById('bom-submit-btn');
-            const cancelBtn = document.getElementById('bom-cancel-edit-btn');
-
-            if (compSelect) compSelect.value = line.itemCode;
-            if (qtyInput) qtyInput.value = line.qty;
-            if (scrapInput) scrapInput.value = line.scrapRate ?? 0;
-            if (editIdxInput) editIdxInput.value = String(index);
-            if (submitBtn) {
-                submitBtn.innerHTML = `<i class="fa-solid fa-check"></i><span>Modifier</span>`;
-                submitBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
-                submitBtn.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
-            }
-            if (cancelBtn) cancelBtn.classList.remove('hidden');
-            if (qtyInput) {
-                qtyInput.focus();
-                qtyInput.select();
+        function focusBomLineEdit(idx) {
+            const input = document.getElementById(`bom-qty-input-${idx}`);
+            if (input) {
+                input.focus();
+                input.select();
             }
         }
 
-        function cancelEditBomLine() {
-            const editIdxInput = document.getElementById('bom-edit-index');
-            const qtyInput = document.getElementById('bom-qty-input');
-            const scrapInput = document.getElementById('bom-scrap-input');
-            const submitBtn = document.getElementById('bom-submit-btn');
-            const cancelBtn = document.getElementById('bom-cancel-edit-btn');
+        function updateBomLineValues(idx) {
+            const pCode = appState.selectedBomProduct;
+            const lines = appState.boms[pCode];
+            if (!lines || !lines[idx]) return;
 
-            if (editIdxInput) editIdxInput.value = '';
-            if (qtyInput) qtyInput.value = '';
-            if (scrapInput) scrapInput.value = '0';
-            if (submitBtn) {
-                submitBtn.innerHTML = `<i class="fa-solid fa-plus"></i><span>Ajouter</span>`;
-                submitBtn.classList.remove('bg-emerald-600', 'hover:bg-emerald-700');
-                submitBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
-            }
-            if (cancelBtn) cancelBtn.classList.add('hidden');
-        }
+            const qtyInput = document.getElementById(`bom-qty-input-${idx}`);
+            const scrapInput = document.getElementById(`bom-scrap-input-${idx}`);
+            const newQty = parseFrenchNumber(qtyInput ? qtyInput.value : lines[idx].qty);
+            const newScrap = parseFrenchNumber(scrapInput ? scrapInput.value : lines[idx].scrapRate);
 
-        function inlineUpdateBomLine(parentCode, index, field, rawVal) {
-            if (!appState.boms[parentCode] || !appState.boms[parentCode][index]) return;
-            const parsed = parseFrenchNumber(rawVal);
-            if (field === 'qty') {
-                if (isNaN(parsed) || parsed <= 0) {
-                    showToast("La quantité doit être supérieure à 0.", "error");
-                    renderBomEditor();
-                    return;
-                }
-                appState.boms[parentCode][index].qty = parsed;
-            } else if (field === 'scrapRate') {
-                const scrap = isNaN(parsed) || parsed < 0 ? 0 : Math.min(99, parsed);
-                appState.boms[parentCode][index].scrapRate = scrap;
+            if (isNaN(newQty) || newQty <= 0) {
+                showToast("La quantité doit être supérieure à 0.", "error");
+                renderBomEditor();
+                return;
             }
+            lines[idx].qty = newQty;
+            lines[idx].scrapRate = isNaN(newScrap) || newScrap < 0 ? 0 : newScrap;
+
             saveState();
             renderBomEditor();
-            showToast(`Recette de ${parentCode} mise à jour.`, "success");
+            showToast("Ligne de nomenclature modifiée.", "success");
         }
 
         function addBomLine(event) {
             event.preventDefault();
-            const parentCode = appState.selectedBomProduct;
-            if (!parentCode) return;
+            const pCode = appState.selectedBomProduct;
+            if (!pCode) return;
 
-            const itemCode = document.getElementById('bom-comp-select').value;
-            const qty = parseFrenchNumber(document.getElementById('bom-qty-input').value);
-            const scrapRate = parseFrenchNumber(document.getElementById('bom-scrap-input').value) || 0;
-            const editIdxRaw = document.getElementById('bom-edit-index')?.value;
+            const compCode = document.getElementById('bom-add-comp').value;
+            const qty = parseFrenchNumber(document.getElementById('bom-add-qty').value);
+            const scrapRate = Math.max(0, parseFrenchNumber(document.getElementById('bom-add-scrap').value) || 0);
 
-            if (!itemCode || isNaN(qty) || qty <= 0) {
-                showToast("Veuillez saisir une quantité strictement positive.", "error");
+            if (!compCode || isNaN(qty) || qty <= 0) {
+                showToast("Veuillez saisir une quantité valide.", "error");
                 return;
             }
 
-            if (!appState.boms[parentCode]) appState.boms[parentCode] = [];
+            if (!appState.boms[pCode]) appState.boms[pCode] = [];
+            const existing = appState.boms[pCode].find(l => l.itemCode === compCode);
+            if (existing) {
+                existing.qty = qty;
+                existing.scrapRate = scrapRate;
+                showToast(`Composant ${compCode} mis à jour dans ${pCode}.`, "success");
+            } else {
+                appState.boms[pCode].push({ itemCode: compCode, qty, scrapRate });
+                showToast(`Composant ${compCode} ajouté à ${pCode}.`, "success");
+            }
 
-            if (editIdxRaw !== '' && editIdxRaw !== undefined) {
-                const idx = parseInt(editIdxRaw, 10);
-                if (!isNaN(idx) && appState.boms[parentCode][idx]) {
-                    appState.boms[parentCode][idx] = { itemCode, qty, scrapRate };
-                    saveState();
-                    renderBomTab();
-                    showToast(`Ligne ${itemCode} modifiée dans la recette de ${parentCode}.`, "success");
+            saveState();
+            renderBomTab();
+        }
+
+        function removeBomLine(idx) {
+            const pCode = appState.selectedBomProduct;
+            if (!pCode || !appState.boms[pCode]) return;
+            appState.boms[pCode].splice(idx, 1);
+            saveState();
+            renderBomTab();
+            showToast("Ligne retirée de la nomenclature.", "info");
+        }
+
+        // =========================================================================
+        // 5. ÉCLATEMENT MULTI-NIVEAUX & CALCUL MRP (ONGLET 3)
+        // =========================================================================
+        function explodeRequirements(planMap, useSfStock = true) {
+            const leafNeeds = {};
+            const sfSummary = {};
+            const sfRemainingStock = {};
+
+            appState.items.filter(i => i.category === 'SF').forEach(sf => {
+                sfRemainingStock[sf.code] = useSfStock ? (Number(sf.stock) || 0) : 0;
+            });
+
+            function explodeNode(code, qtyNeeded, visited = new Set()) {
+                if (qtyNeeded <= 0) return;
+                const item = getItemByCode(code);
+                if (!item) return;
+
+                if (item.category === 'SF') {
+                    if (!sfSummary[code]) {
+                        sfSummary[code] = {
+                            code,
+                            name: item.name,
+                            unit: item.unit,
+                            grossNeed: 0,
+                            initialStock: Number(item.stock) || 0,
+                            usedStock: 0,
+                            toProduce: 0
+                        };
+                    }
+                    sfSummary[code].grossNeed += qtyNeeded;
+
+                    const usable = Math.min(sfRemainingStock[code] || 0, qtyNeeded);
+                    sfRemainingStock[code] = (sfRemainingStock[code] || 0) - usable;
+                    sfSummary[code].usedStock += usable;
+
+                    const netToProduce = qtyNeeded - usable;
+                    sfSummary[code].toProduce += netToProduce;
+
+                    if (netToProduce <= 0) return;
+                    qtyNeeded = netToProduce;
+                }
+
+                const lines = appState.boms[code];
+                if (!lines || lines.length === 0 || visited.has(code)) {
+                    leafNeeds[code] = (leafNeeds[code] || 0) + qtyNeeded;
                     return;
                 }
-            }
 
-            const existingLine = appState.boms[parentCode].find(l => l.itemCode === itemCode);
-            if (existingLine) {
-                existingLine.qty = qty;
-                existingLine.scrapRate = scrapRate;
-            } else {
-                appState.boms[parentCode].push({ itemCode, qty, scrapRate });
-            }
-
-            saveState();
-            renderBomTab();
-            showToast(`Ligne ${itemCode} enregistrée dans la recette de ${parentCode}.`, "success");
-        }
-
-        function removeBomLine(parentCode, index) {
-            if (!appState.boms[parentCode]) return;
-            appState.boms[parentCode].splice(index, 1);
-            saveState();
-            renderBomTab();
-            showToast("Ligne supprimée de la nomenclature.", "info");
-        }
-
-        function exportBomXLSX() {
-            const rows = [
-                ["Produit_Parent", "Composant", "Quantite_Unitaire", "Perte_Pct", "Version"]
-            ];
-            Object.entries(appState.boms || {}).forEach(([parentCode, lines]) => {
-                if (!Array.isArray(lines)) return;
-                const version = appState.bomVersions?.[parentCode] || 'V1.0';
-                lines.forEach(line => {
-                    rows.push([
-                        parentCode,
-                        line.itemCode,
-                        Number(line.qty) || 0,
-                        Number(line.scrapRate) || 0,
-                        version
-                    ]);
-                });
-            });
-            downloadXLSX("optiprod_nomenclatures_bom.xlsx", [{ name: "Nomenclatures", rows }]);
-            showToast("Fichier Excel (.xlsx) des nomenclatures téléchargé.", "success");
-        }
-
-        function triggerImportBomXLSX() {
-            const input = document.getElementById('import-bom-input');
-            if (!input) return;
-            input.value = '';
-            input.click();
-        }
-
-        function detectBomColumnMap(headers) {
-            const norm = headers.map(h => String(h ?? '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
-            const findIdx = (candidates, fallback) => {
-                for (const cand of candidates) {
-                    const idx = norm.findIndex(col => col === cand || col.includes(cand));
-                    if (idx !== -1) return idx;
-                }
-                return fallback;
-            };
-            return {
-                parentIdx: findIdx(["produit_parent", "parent", "produit", "pf", "sf", "article_parent", "fini", "code_parent"], 0),
-                compIdx: findIdx(["composant", "matiere", "ingredient", "component", "code_composant", "mp", "article"], 1),
-                qtyIdx: findIdx(["quantite", "quantite_unitaire", "qte", "qty", "besoin", "consommation"], 2),
-                scrapIdx: findIdx(["perte", "perte_pct", "scrap", "scrap_rate", "rebut", "chute"], 3),
-                verIdx: findIdx(["version", "bom_version", "rev", "indice"], 4)
-            };
-        }
-
-        function ensureBomParentItem(code) {
-            let item = getItemByCode(code);
-            if (!item) {
-                const cat = /^SF/i.test(code) ? 'SF' : 'PF';
-                item = {
-                    code,
-                    name: code,
-                    category: cat,
-                    stock: 0,
-                    unit: 'Unité',
-                    price: 0
-                };
-                appState.items.push(item);
-                if (cat === 'PF' && appState.mrpPlan[code] === undefined) {
-                    appState.mrpPlan[code] = 0;
-                }
-            }
-            return item;
-        }
-
-        function ensureBomComponentItem(code) {
-            let item = getItemByCode(code);
-            if (!item) {
-                let cat = 'MP';
-                let unit = 'KG';
-                if (/^SF/i.test(code)) {
-                    cat = 'SF';
-                    unit = 'Unité';
-                } else if (/^(EMB|E\d+|PACK|CARTON)/i.test(code)) {
-                    cat = 'EMB';
-                    unit = 'Unité';
-                } else if (/^(CH|C-F|CHARGE)/i.test(code)) {
-                    cat = 'CH';
-                    unit = 'Unité';
-                }
-                item = {
-                    code,
-                    name: code,
-                    category: cat,
-                    stock: 0,
-                    unit,
-                    price: 0
-                };
-                appState.items.push(item);
-            }
-            return item;
-        }
-
-        function processImportedBomRows(rows) {
-            if (!Array.isArray(rows) || rows.length < 2) {
-                throw new Error("Le fichier de nomenclatures ne contient aucune ligne de données.");
-            }
-
-            const colMap = detectBomColumnMap(rows[0]);
-            const groupedBoms = {};
-            const groupedVersions = {};
-            let importedLinesCount = 0;
-
-            for (let i = 1; i < rows.length; i++) {
-                const cols = rows[i];
-                if (!Array.isArray(cols) || cols.length < 2) continue;
-
-                const parentCode = String(cols[colMap.parentIdx] ?? '').trim().toUpperCase();
-                const compCode = String(cols[colMap.compIdx] ?? '').trim().toUpperCase();
-                if (!parentCode || !compCode || parentCode === compCode) continue;
-
-                const rawQty = cols[colMap.qtyIdx];
-                const parsedQty = typeof rawQty === 'number' ? rawQty : parseFrenchNumber(rawQty);
-                if (isNaN(parsedQty) || parsedQty <= 0) continue;
-
-                const rawScrap = cols[colMap.scrapIdx];
-                const parsedScrap = (rawScrap !== undefined && rawScrap !== '')
-                    ? (typeof rawScrap === 'number' ? rawScrap : parseFrenchNumber(rawScrap))
-                    : 0;
-                const scrapRate = isNaN(parsedScrap) || parsedScrap < 0 ? 0 : parsedScrap;
-
-                const verRaw = String(cols[colMap.verIdx] ?? '').trim();
-                if (verRaw) groupedVersions[parentCode] = verRaw;
-
-                ensureBomParentItem(parentCode);
-                ensureBomComponentItem(compCode);
-
-                if (!groupedBoms[parentCode]) groupedBoms[parentCode] = [];
-                const existingLine = groupedBoms[parentCode].find(l => l.itemCode === compCode);
-                if (existingLine) {
-                    existingLine.qty = Number((existingLine.qty + parsedQty).toFixed(6));
-                    existingLine.scrapRate = scrapRate;
-                } else {
-                    groupedBoms[parentCode].push({
-                        itemCode: compCode,
-                        qty: parsedQty,
-                        scrapRate
-                    });
-                }
-                importedLinesCount++;
-            }
-
-            if (importedLinesCount === 0) {
-                throw new Error("Aucune ligne de nomenclature valide trouvée dans le fichier.");
-            }
-
-            Object.entries(groupedBoms).forEach(([pCode, lines]) => {
-                appState.boms[pCode] = lines;
-                if (groupedVersions[pCode]) {
-                    appState.bomVersions[pCode] = groupedVersions[pCode];
-                } else if (!appState.bomVersions[pCode]) {
-                    appState.bomVersions[pCode] = 'V1.0';
-                }
-            });
-
-            const importedParents = Object.keys(groupedBoms);
-            if (!appState.selectedBomProduct || !appState.boms[appState.selectedBomProduct]) {
-                appState.selectedBomProduct = importedParents[0] || null;
-            }
-
-            saveState();
-            renderAll();
-            showToast(`Import nomenclatures réussi : ${importedLinesCount} ligne(s) sur ${importedParents.length} produit(s).`, "success");
-        }
-
-        function handleImportBomXLSX(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-
-            if (file.size === 0) {
-                showToast("Le fichier sélectionné est vide (0 octet).", "error");
-                return;
-            }
-
-            const isExcel = /\.(xlsx|xls)$/i.test(file.name);
-            const reader = new FileReader();
-
-            reader.onload = function(e) {
-                try {
-                    if (isExcel) {
-                        if (typeof XLSX === 'undefined') {
-                            throw new Error("Bibliothèque Excel (.xlsx) non chargée.");
-                        }
-                        const data = new Uint8Array(e.target.result);
-                        const workbook = XLSX.read(data, { type: 'array' });
-                        const firstSheetName = workbook.SheetNames[0];
-                        if (!firstSheetName) throw new Error("Aucune feuille trouvée dans le classeur Excel.");
-                        const sheet = workbook.Sheets[firstSheetName];
-                        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-                        processImportedBomRows(rows);
-                    } else {
-                        const text = String(e.target.result || '').replace(/^\uFEFF/, '').replace(/\u0000/g, '');
-                        const lines = text.split(/\r\n|\r|\n/).filter(l => l.trim().length > 0);
-                        if (lines.length < 2) {
-                            throw new Error("Le fichier ne contient aucune ligne de données.");
-                        }
-                        const sep = lines[0].includes(';') ? ';' : (lines[0].includes('\t') ? '\t' : ',');
-                        const rows = lines.map(line => splitCsvLine(line, sep));
-                        processImportedBomRows(rows);
-                    }
-                } catch (err) {
-                    showToast("Erreur import nomenclatures : " + err.message, "error");
-                }
-            };
-
-            if (isExcel) {
-                reader.readAsArrayBuffer(file);
-            } else {
-                reader.readAsText(file, 'UTF-8');
-            }
-        }
-
-        // =========================================================================
-        // 5. MOTEUR D'ÉCLATEMENT MULTI-NIVEAUX (BOM -> MRP & OPTIMISATION)
-        // =========================================================================
-        function explodeRequirements(productionPlan, useSfStock = true, visited = new Set()) {
-            const rawRequirements = {};
-            const sfGrossNeeded = {};
-            const sfFromStock = {};
-            const sfToProduce = {};
-
-            const addRaw = (code, amount) => {
-                if (amount <= 0) return;
-                rawRequirements[code] = (rawRequirements[code] || 0) + amount;
-            };
-
-            const expandComponent = (compCode, grossQty, localVisited) => {
-                const compItem = getItemByCode(compCode);
-                if (!compItem) return;
-
-                const subBom = appState.boms[compCode] || [];
-                if (compItem.category === 'SF' && subBom.length > 0) {
-                    if (localVisited.has(compCode)) return;
-                    sfGrossNeeded[compCode] = (sfGrossNeeded[compCode] || 0) + grossQty;
-
-                    const availableSf = useSfStock ? Math.max(0, Number(compItem.stock) || 0) : 0;
-                    const alreadyReserved = sfFromStock[compCode] || 0;
-                    const remainingStock = Math.max(0, availableSf - alreadyReserved);
-                    const usedFromStock = Math.min(remainingStock, grossQty);
-                    const netToProduce = Math.max(0, grossQty - usedFromStock);
-
-                    sfFromStock[compCode] = alreadyReserved + usedFromStock;
-                    sfToProduce[compCode] = (sfToProduce[compCode] || 0) + netToProduce;
-
-                    if (netToProduce > 0) {
-                        const nextVisited = new Set(localVisited);
-                        nextVisited.add(compCode);
-                        subBom.forEach(subLine => {
-                            const subScrap = Number(subLine.scrapRate) || 0;
-                            const subGross = netToProduce * (Number(subLine.qty) || 0) * (1 + subScrap / 100);
-                            expandComponent(subLine.itemCode, subGross, nextVisited);
-                        });
-                    }
-                } else {
-                    addRaw(compCode, grossQty);
-                }
-            };
-
-            Object.entries(productionPlan || {}).forEach(([pfCode, qtyRaw]) => {
-                const qty = Number(qtyRaw) || 0;
-                if (qty <= 0) return;
-                const pfItem = getItemByCode(pfCode);
-                if (!pfItem) return;
-
-                const bomLines = appState.boms[pfCode] || [];
                 const nextVisited = new Set(visited);
-                nextVisited.add(pfCode);
+                nextVisited.add(code);
 
-                bomLines.forEach(line => {
-                    const scrap = Number(line.scrapRate) || 0;
-                    const grossQty = qty * (Number(line.qty) || 0) * (1 + scrap / 100);
-                    expandComponent(line.itemCode, grossQty, nextVisited);
+                lines.forEach(line => {
+                    const grossFactor = (Number(line.qty) || 0) * (1 + (Number(line.scrapRate) || 0) / 100);
+                    explodeNode(line.itemCode, qtyNeeded * grossFactor, nextVisited);
                 });
+            }
+
+            let totalUnits = 0;
+            let totalRevenue = 0;
+
+            Object.entries(planMap || {}).forEach(([pfCode, rawQty]) => {
+                const qty = Number(rawQty) || 0;
+                if (qty <= 0) return;
+                const item = getItemByCode(pfCode);
+                if (!item) return;
+                totalUnits += qty;
+                totalRevenue += qty * (Number(item.price) || 0);
+                explodeNode(pfCode, qty, new Set());
             });
 
-            const sfSummary = {};
-            const allSfCodes = new Set([
-                ...Object.keys(sfGrossNeeded),
-                ...appState.items.filter(i => i.category === 'SF').map(i => i.code)
-            ]);
-            allSfCodes.forEach(code => {
-                const gross = sfGrossNeeded[code] || 0;
-                const fromStock = sfFromStock[code] || 0;
-                const toProduce = sfToProduce[code] || 0;
-                if (gross > 0 || fromStock > 0 || toProduce > 0) {
-                    sfSummary[code] = { gross, fromStock, toProduce };
-                }
-            });
-
-            return { rawRequirements, sfSummary };
+            return { leafNeeds, sfSummary, totalUnits, totalRevenue };
         }
 
-        // =========================================================================
-        // 6. CALCUL DES BESOINS MRP & ORDRE DE FABRICATION (ONGLET 3)
-        // =========================================================================
         function renderMrpTab() {
             const pfItems = appState.items.filter(i => i.category === 'PF');
             const listEl = document.getElementById('mrp-inputs-list');
+            if (!listEl) return;
 
             if (pfItems.length === 0) {
-                listEl.innerHTML = `<p class="text-sm text-slate-400">Aucun Produit Fini (PF) disponible.</p>`;
+                listEl.innerHTML = `<p class="text-xs text-slate-400">Aucun Produit Fini (PF) configuré.</p>`;
             } else {
                 listEl.innerHTML = pfItems.map(pf => {
-                    const val = appState.mrpPlan[pf.code] ?? 0;
+                    const val = appState.mrpPlan[pf.code] || 0;
                     return `
-                        <div class="flex items-center justify-between gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/60">
+                        <div class="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200/80">
                             <div class="min-w-0">
-                                <p class="text-sm font-bold text-slate-800 truncate">${escapeHtml(pf.code)}</p>
-                                <p class="text-xs text-slate-500 truncate">${escapeHtml(pf.name)} • Stock PF : ${formatNumber(pf.stock, 0)}</p>
+                                <p class="text-xs font-bold text-slate-800 truncate">${escapeHtml(pf.code)}</p>
+                                <p class="text-[11px] text-slate-500 truncate">${escapeHtml(pf.name)}</p>
                             </div>
-                            <input type="number" min="0" step="any" value="${val}"
-                                onchange="updateMrpPlanQty('${escapeHtml(pf.code)}', this.value)"
-                                class="w-28 text-right font-bold text-slate-800 bg-white border border-slate-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <div class="flex items-center gap-1.5 shrink-0">
+                                <input type="number" min="0" step="1" value="${val}" oninput="updateMrpQty('${escapeHtml(pf.code)}', this.value)" class="w-24 text-right font-bold text-sm text-indigo-700 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none">
+                                <span class="text-xs text-slate-400">${escapeHtml(pf.unit)}</span>
+                            </div>
                         </div>
                     `;
                 }).join('');
@@ -1819,262 +1526,242 @@
             calculateMRP();
         }
 
-        function updateMrpPlanQty(code, rawVal) {
-            const parsed = parseFrenchNumber(rawVal);
-            appState.mrpPlan[code] = isNaN(parsed) || parsed < 0 ? 0 : parsed;
+        function updateMrpQty(pfCode, val) {
+            const parsed = Math.max(0, parseFrenchNumber(val) || 0);
+            appState.mrpPlan[pfCode] = parsed;
             saveState();
             calculateMRP();
         }
 
         function clearMrpInputs() {
-            Object.keys(appState.mrpPlan).forEach(k => { appState.mrpPlan[k] = 0; });
+            Object.keys(appState.mrpPlan).forEach(k => appState.mrpPlan[k] = 0);
             saveState();
             renderMrpTab();
         }
 
         function calculateMRP() {
-            const useSfStock = document.getElementById('mrp-use-sf-stock')?.checked ?? true;
-            const { rawRequirements, sfSummary } = explodeRequirements(appState.mrpPlan, useSfStock);
+            const useSf = document.getElementById('mrp-use-sf-stock')?.checked ?? true;
+            const { leafNeeds, sfSummary, totalUnits, totalRevenue } = explodeRequirements(appState.mrpPlan, useSf);
 
+            const sfEntries = Object.values(sfSummary);
             const sfCard = document.getElementById('mrp-sf-summary-card');
             const sfBody = document.getElementById('mrp-sf-table-body');
-            const sfEntries = Object.entries(sfSummary);
-
-            if (sfEntries.length > 0) {
+            if (sfEntries.length > 0 && totalUnits > 0) {
                 sfCard.classList.remove('hidden');
-                sfBody.innerHTML = sfEntries.map(([code, info]) => {
-                    const item = getItemByCode(code);
-                    return `
-                        <tr>
-                            <td class="py-2 font-semibold text-slate-800">${escapeHtml(code)}</td>
-                            <td class="py-2 text-right">${formatNumber(info.gross, 2)}</td>
-                            <td class="py-2 text-right text-sky-700">${formatNumber(info.fromStock, 2)}</td>
-                            <td class="py-2 text-right font-bold text-indigo-700">${formatNumber(info.toProduce, 2)} ${escapeHtml(item ? item.unit : '')}</td>
-                        </tr>
-                    `;
-                }).join('');
+                sfBody.innerHTML = sfEntries.map(sf => `
+                    <tr>
+                        <td class="py-2 font-semibold text-slate-800">${escapeHtml(sf.code)}</td>
+                        <td class="py-2 text-right">${formatNumber(sf.grossNeed, 2)}</td>
+                        <td class="py-2 text-right text-sky-600">${formatNumber(sf.usedStock, 2)}</td>
+                        <td class="py-2 text-right font-bold text-indigo-600">${formatNumber(sf.toProduce, 2)}</td>
+                    </tr>
+                `).join('');
             } else {
                 sfCard.classList.add('hidden');
             }
 
-            const entries = Object.entries(rawRequirements);
-            let shortageCount = 0;
-            let totalCostDA = 0;
-            let totalUnitsPlanned = 0;
+            let shortagesCount = 0;
+            let totalMatCost = 0;
+            const rows = [];
 
-            Object.entries(appState.mrpPlan).forEach(([code, q]) => {
-                totalUnitsPlanned += Number(q) || 0;
+            Object.entries(leafNeeds).forEach(([code, need]) => {
+                const item = getItemByCode(code);
+                if (!item) return;
+                const stock = Number(item.stock) || 0;
+                const balance = item.category === 'CH' ? 0 : (stock - need);
+                const isShort = item.category !== 'CH' && balance < -1e-6;
+                if (isShort) shortagesCount++;
+                totalMatCost += need * (Number(item.price) || 0);
+
+                rows.push({ item, need, stock, balance, isShort });
             });
 
-            const tbody = document.getElementById('mrp-results-body');
-            if (entries.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" class="py-10 text-center text-slate-400">Saisissez une quantité à produire pour calculer les besoins matières.</td></tr>`;
-            } else {
-                tbody.innerHTML = entries.map(([code, needed]) => {
-                    const item = getItemByCode(code);
-                    if (!item) return '';
-                    const stock = Number(item.stock) || 0;
-                    const diff = stock - needed;
-                    const isCharge = item.category === 'CH';
-                    const isShortage = !isCharge && diff < -1e-6;
-                    if (isShortage) shortageCount++;
-                    totalCostDA += needed * (Number(item.price) || 0);
-
-                    const statusBadge = isCharge
-                        ? `<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">Charge</span>`
-                        : (isShortage
-                            ? `<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-700">Manque ${formatNumber(Math.abs(diff), 2)}</span>`
-                            : `<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">OK</span>`);
-
-                    return `
-                        <tr class="${isShortage ? 'bg-rose-50/40' : ''}">
-                            <td class="py-2.5 px-3">
-                                <span class="font-bold text-slate-800">${escapeHtml(item.code)}</span>
-                                <span class="text-xs text-slate-500 block sm:inline sm:ml-1">${escapeHtml(item.name)}</span>
-                            </td>
-                            <td class="py-2.5 px-3">${getCategoryBadge(item.category)}</td>
-                            <td class="py-2.5 px-3 text-right font-bold text-slate-800">${formatNumber(needed, 4)} ${escapeHtml(item.unit)}</td>
-                            <td class="py-2.5 px-3 text-right text-slate-700">${formatNumber(stock, 4)}</td>
-                            <td class="py-2.5 px-3 text-right font-semibold ${isShortage ? 'text-rose-600' : 'text-emerald-700'}">${diff >= 0 ? '+' : ''}${formatNumber(diff, 4)}</td>
-                            <td class="py-2.5 px-3 text-center">${statusBadge}</td>
-                        </tr>
-                    `;
-                }).join('');
-            }
-
             const badge = document.getElementById('mrp-status-badge');
-            if (totalUnitsPlanned === 0) {
-                badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600';
-                badge.textContent = 'En attente de quantité';
-            } else if (shortageCount > 0) {
-                badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800';
-                badge.textContent = `${shortageCount} rupture(s) détectée(s)`;
+            if (totalUnits === 0) {
+                badge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600";
+                badge.textContent = "En attente de quantités";
+            } else if (shortagesCount === 0) {
+                badge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800";
+                badge.textContent = "Production Réalisable (100% couvert)";
             } else {
-                badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800';
-                badge.textContent = 'Stock suffisant';
+                badge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800";
+                badge.textContent = `${shortagesCount} Rupture(s) détectée(s)`;
             }
 
             document.getElementById('mrp-kpi-bar').innerHTML = `
-                <div class="p-3 rounded-xl bg-slate-50 border border-slate-200/70">
-                    <p class="text-[11px] uppercase font-bold text-slate-400">Unités Planifiées</p>
-                    <p class="text-base font-bold text-slate-800 mt-0.5">${formatNumber(totalUnitsPlanned, 0)}</p>
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Unités PF à produire</p>
+                    <p class="text-lg font-bold text-slate-800 mt-0.5">${formatNumber(totalUnits, 0)}</p>
                 </div>
-                <div class="p-3 rounded-xl bg-slate-50 border border-slate-200/70">
-                    <p class="text-[11px] uppercase font-bold text-slate-400">Coût Matières Est.</p>
-                    <p class="text-base font-bold text-indigo-700 mt-0.5">${formatDA(totalCostDA)}</p>
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Coût Matières & Charges</p>
+                    <p class="text-lg font-bold text-indigo-600 mt-0.5">${formatDA(totalMatCost)}</p>
                 </div>
-                <div class="p-3 rounded-xl bg-slate-50 border border-slate-200/70">
-                    <p class="text-[11px] uppercase font-bold text-slate-400">Composants en Manque</p>
-                    <p class="text-base font-bold ${shortageCount > 0 ? 'text-rose-600' : 'text-emerald-600'} mt-0.5">${shortageCount}</p>
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Valeur Production</p>
+                    <p class="text-lg font-bold text-emerald-600 mt-0.5">${formatDA(totalRevenue)}</p>
                 </div>
             `;
+
+            const tbody = document.getElementById('mrp-results-body');
+            if (rows.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-slate-400 text-xs">Saisissez une quantité de Produit Fini à gauche pour voir le détail des besoins.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = rows.map(r => `
+                <tr class="${r.isShort ? 'bg-rose-50/50' : 'hover:bg-slate-50/70'}">
+                    <td class="py-2.5 px-3">
+                        <span class="font-bold text-slate-800">${escapeHtml(r.item.code)}</span>
+                        <span class="text-xs text-slate-500 block">${escapeHtml(r.item.name)}</span>
+                    </td>
+                    <td class="py-2.5 px-3">${getCategoryBadge(r.item.category)}</td>
+                    <td class="py-2.5 px-3 text-right font-bold text-slate-800">${formatNumber(r.need, 3)} ${escapeHtml(r.item.unit)}</td>
+                    <td class="py-2.5 px-3 text-right text-slate-600">${r.item.category === 'CH' ? '∞' : formatNumber(r.stock, 3)}</td>
+                    <td class="py-2.5 px-3 text-right font-semibold ${r.isShort ? 'text-rose-600' : 'text-emerald-600'}">${r.item.category === 'CH' ? '—' : formatNumber(r.balance, 3)}</td>
+                    <td class="py-2.5 px-3 text-center">
+                        ${r.isShort
+                            ? `<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700">Manque ${formatNumber(Math.abs(r.balance), 2)}</span>`
+                            : `<span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">OK</span>`
+                        }
+                    </td>
+                </tr>
+            `).join('');
         }
 
         function executeProductionOrder() {
             if (!hasPermission('PRODUCTION')) {
-                showToast(`Le rôle ${appState.activeRole} n'est pas autorisé à valider un Ordre de Fabrication.`, "error");
+                showToast(`Le rôle ${appState.activeRole} ne peut pas valider d'Ordre de Fabrication.`, "error");
+                return;
+            }
+            const useSf = document.getElementById('mrp-use-sf-stock')?.checked ?? true;
+            const { leafNeeds, sfSummary, totalUnits } = explodeRequirements(appState.mrpPlan, useSf);
+
+            if (totalUnits <= 0) {
+                showToast("Aucune quantité à produire dans le plan.", "error");
                 return;
             }
 
-            const useSfStock = document.getElementById('mrp-use-sf-stock')?.checked ?? true;
-            const { rawRequirements, sfSummary } = explodeRequirements(appState.mrpPlan, useSfStock);
-
-            const plannedEntries = Object.entries(appState.mrpPlan).filter(([, q]) => (Number(q) || 0) > 0);
-            if (plannedEntries.length === 0) {
-                showToast("Entrez au moins une quantité de Produit Fini à fabriquer.", "error");
-                return;
-            }
-
-            for (const [code, needed] of Object.entries(rawRequirements)) {
+            for (const [code, need] of Object.entries(leafNeeds)) {
                 const item = getItemByCode(code);
-                if (!item || item.category === 'CH') continue;
-                if ((Number(item.stock) || 0) + 1e-6 < needed) {
-                    showToast(`Stock insuffisant pour ${code} (besoin : ${formatNumber(needed, 2)}, dispo : ${formatNumber(item.stock, 2)}).`, "error");
+                if (item && item.category !== 'CH' && (item.stock + 1e-6) < need) {
+                    showToast(`Stock insuffisant pour ${item.code} (${item.name}).`, "error");
                     return;
                 }
             }
 
-            for (const [sfCode, info] of Object.entries(sfSummary)) {
-                const sfItem = getItemByCode(sfCode);
-                if (!sfItem) continue;
-                if ((Number(sfItem.stock) || 0) + 1e-6 < info.fromStock) {
-                    showToast(`Stock de semi-fini ${sfCode} insuffisant.`, "error");
-                    return;
-                }
-            }
+            openConfirmModal(
+                "Valider l'Ordre de Fabrication",
+                `Confirmer la production de ${totalUnits} unité(s) ? Les matières consommées seront déduites des stocks et les Produits Finis seront crédités.`,
+                () => {
+                    const ofRef = `OF-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(appState.productionOrders.length + 1).padStart(3, '0')}`;
+                    const nowIso = new Date().toISOString();
 
-            const ofRef = `OF-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(appState.productionOrders.length + 1).padStart(3, '0')}`;
-            const nowIso = new Date().toISOString();
-
-            // 1. Déduire matières consommées
-            Object.entries(rawRequirements).forEach(([code, usedQty]) => {
-                const item = getItemByCode(code);
-                if (!item || item.category === 'CH' || usedQty <= 0) return;
-                item.stock = Math.max(0, (Number(item.stock) || 0) - usedQty);
-                appState.movements.unshift({
-                    id: generateUUID(),
-                    clientOperationId: generateUUID(),
-                    articleCode: item.code,
-                    movementType: 'CONSUMPTION',
-                    quantity: -usedQty,
-                    unitCostDa: item.price || 0,
-                    reference: ofRef,
-                    warehouseFrom: 'Dépôt Central',
-                    warehouseTo: 'Atelier Production',
-                    role: appState.activeRole,
-                    createdAt: nowIso
-                });
-            });
-
-            // 2. Déduire semi-finis pris sur stock
-            Object.entries(sfSummary).forEach(([sfCode, info]) => {
-                if (info.fromStock > 0) {
-                    const sfItem = getItemByCode(sfCode);
-                    if (sfItem) {
-                        sfItem.stock = Math.max(0, (Number(sfItem.stock) || 0) - info.fromStock);
+                    Object.entries(leafNeeds).forEach(([code, need]) => {
+                        const item = getItemByCode(code);
+                        if (!item || item.category === 'CH' || need <= 0) return;
+                        item.stock = Math.max(0, Number((item.stock - need).toFixed(6)));
                         appState.movements.unshift({
                             id: generateUUID(),
-                            clientOperationId: generateUUID(),
-                            articleCode: sfItem.code,
-                            movementType: 'CONSUMPTION',
-                            quantity: -info.fromStock,
-                            unitCostDa: sfItem.price || 0,
+                            date: nowIso,
+                            type: 'CONSUMPTION',
+                            articleCode: item.code,
+                            quantity: -need,
+                            unitCost: item.price || 0,
                             reference: ofRef,
-                            warehouseFrom: 'Stock SF',
+                            warehouseFrom: 'Magasin Central',
                             warehouseTo: 'Atelier Production',
-                            role: appState.activeRole,
-                            createdAt: nowIso
+                            role: appState.activeRole
                         });
-                    }
+                    });
+
+                    Object.values(sfSummary).forEach(sf => {
+                        if (sf.usedStock > 0) {
+                            const sfItem = getItemByCode(sf.code);
+                            if (sfItem) {
+                                sfItem.stock = Math.max(0, Number((sfItem.stock - sf.usedStock).toFixed(6)));
+                                appState.movements.unshift({
+                                    id: generateUUID(),
+                                    date: nowIso,
+                                    type: 'CONSUMPTION',
+                                    articleCode: sfItem.code,
+                                    quantity: -sf.usedStock,
+                                    unitCost: sfItem.price || 0,
+                                    reference: ofRef,
+                                    warehouseFrom: 'Stock SF',
+                                    warehouseTo: 'Atelier Production',
+                                    role: appState.activeRole
+                                });
+                            }
+                        }
+                    });
+
+                    const producedLines = [];
+                    Object.entries(appState.mrpPlan).forEach(([pfCode, qty]) => {
+                        const q = Number(qty) || 0;
+                        if (q <= 0) return;
+                        const pfItem = getItemByCode(pfCode);
+                        if (!pfItem) return;
+                        pfItem.stock = Number((pfItem.stock + q).toFixed(6));
+                        producedLines.push({ articleCode: pfCode, quantity: q });
+                        appState.movements.unshift({
+                            id: generateUUID(),
+                            date: nowIso,
+                            type: 'PRODUCTION',
+                            articleCode: pfCode,
+                            quantity: q,
+                            unitCost: pfItem.price || 0,
+                            reference: ofRef,
+                            warehouseFrom: 'Atelier Production',
+                            warehouseTo: 'Magasin Produits Finis',
+                            role: appState.activeRole
+                        });
+                    });
+
+                    appState.productionOrders.unshift({
+                        reference: ofRef,
+                        status: 'CONFIRMED',
+                        createdAt: nowIso,
+                        role: appState.activeRole,
+                        lines: producedLines
+                    });
+
+                    saveState();
+                    renderAll();
+                    showToast(`Ordre de Fabrication ${ofRef} validé et stocks mis à jour !`, "success");
                 }
-            });
-
-            // 3. Créditer Produits Finis fabriqués
-            plannedEntries.forEach(([pfCode, qtyRaw]) => {
-                const qty = Number(qtyRaw) || 0;
-                const pfItem = getItemByCode(pfCode);
-                if (!pfItem || qty <= 0) return;
-                pfItem.stock = (Number(pfItem.stock) || 0) + qty;
-                appState.movements.unshift({
-                    id: generateUUID(),
-                    clientOperationId: generateUUID(),
-                    articleCode: pfItem.code,
-                    movementType: 'PRODUCTION',
-                    quantity: qty,
-                    unitCostDa: pfItem.price || 0,
-                    reference: ofRef,
-                    warehouseFrom: 'Atelier Production',
-                    warehouseTo: 'Dépôt Produits Finis',
-                    role: appState.activeRole,
-                    createdAt: nowIso
-                });
-            });
-
-            appState.productionOrders.unshift({
-                reference: ofRef,
-                status: 'CONFIRMED',
-                plan: { ...appState.mrpPlan },
-                createdAt: nowIso
-            });
-
-            saveState();
-            renderAll();
-            showToast(`Ordre de Fabrication ${ofRef} validé et stocks mis à jour !`, "success");
+            );
         }
 
         // =========================================================================
-        // 7. OPTIMISATION SOUS CONTRAINTES (ONGLET 4)
+        // 6. OPTIMISATION EN NOMBRES ENTIERS (ONGLET 4)
         // =========================================================================
         function renderOptTab() {
             const pfItems = appState.items.filter(i => i.category === 'PF');
-            const container = document.getElementById('opt-products-list');
+            const listEl = document.getElementById('opt-products-list');
+            if (!listEl) return;
 
-            if (pfItems.length === 0) {
-                container.innerHTML = `<p class="text-xs text-slate-400">Ajoutez des Produits Finis (PF) pour lancer l'optimisation.</p>`;
-                return;
-            }
-
-            container.innerHTML = pfItems.map(pf => `
-                <div class="p-3 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2" data-opt-code="${escapeHtml(pf.code)}">
+            listEl.innerHTML = pfItems.map(pf => `
+                <div class="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-2">
                     <div class="flex items-center justify-between">
-                        <label class="flex items-center gap-2 font-bold text-xs sm:text-sm text-slate-800 cursor-pointer">
-                            <input type="checkbox" class="opt-enabled rounded text-indigo-600" checked>
+                        <label class="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
+                            <input type="checkbox" class="opt-cand-check rounded text-indigo-600" data-code="${escapeHtml(pf.code)}" checked>
                             <span>${escapeHtml(pf.code)} — ${escapeHtml(pf.name)}</span>
                         </label>
-                        <span class="text-xs font-semibold text-indigo-600">${formatDA(pf.price)}</span>
+                        <span class="text-[11px] font-semibold text-indigo-600">${formatDA(pf.price)}</span>
                     </div>
-                    <div class="grid grid-cols-3 gap-2 text-xs">
+                    <div class="grid grid-cols-3 gap-2 text-[11px]">
                         <div>
-                            <span class="text-[10px] text-slate-400 block">Min</span>
-                            <input type="number" min="0" value="0" class="opt-min w-full border border-slate-300 rounded px-2 py-1 bg-white">
+                            <span class="text-slate-400 block">Min</span>
+                            <input type="number" min="0" value="0" class="opt-cand-min w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-700" data-code="${escapeHtml(pf.code)}">
                         </div>
                         <div>
-                            <span class="text-[10px] text-slate-400 block">Max (vide = ∞)</span>
-                            <input type="number" min="0" placeholder="∞" class="opt-max w-full border border-slate-300 rounded px-2 py-1 bg-white">
+                            <span class="text-slate-400 block">Max (opt.)</span>
+                            <input type="number" min="0" placeholder="Auto" class="opt-cand-max w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-700" data-code="${escapeHtml(pf.code)}">
                         </div>
                         <div>
-                            <span class="text-[10px] text-slate-400 block">Poids / Priorité</span>
-                            <input type="number" min="0.1" step="any" value="1" class="opt-weight w-full border border-slate-300 rounded px-2 py-1 bg-white">
+                            <span class="text-slate-400 block">Poids</span>
+                            <input type="number" min="1" value="1" class="opt-cand-weight w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-700" data-code="${escapeHtml(pf.code)}">
                         </div>
                     </div>
                 </div>
@@ -2082,269 +1769,211 @@
 
             if (appState.lastOptimalCombo) {
                 renderOptResults(appState.lastOptimalCombo);
+            } else {
+                runOptimization();
             }
-        }
-
-        function isPlanFeasible(plan, useSfStock) {
-            const { rawRequirements, sfSummary } = explodeRequirements(plan, useSfStock);
-
-            for (const [code, needed] of Object.entries(rawRequirements)) {
-                const item = getItemByCode(code);
-                if (!item || item.category === 'CH') continue;
-                if (needed > (Number(item.stock) || 0) + 1e-7) return false;
-            }
-
-            if (useSfStock) {
-                for (const [sfCode, info] of Object.entries(sfSummary)) {
-                    const sfItem = getItemByCode(sfCode);
-                    if (!sfItem) continue;
-                    if (info.fromStock > (Number(sfItem.stock) || 0) + 1e-7) return false;
-                }
-            }
-
-            return true;
-        }
-
-        function scorePlan(plan, objective, candidates) {
-            let totalUnits = 0;
-            let totalValue = 0;
-            let weightedScore = 0;
-            const values = [];
-
-            candidates.forEach(c => {
-                const q = plan[c.code] || 0;
-                const item = getItemByCode(c.code);
-                const price = Number(item?.price) || 0;
-                totalUnits += q;
-                totalValue += q * price;
-                weightedScore += q * c.weight;
-                values.push(q * c.weight);
-            });
-
-            if (objective === 'MAX_UNITS') {
-                return totalUnits * 100000 + totalValue * 0.01;
-            }
-            if (objective === 'MAX_VALUE') {
-                return totalValue * 100 + totalUnits * 0.01;
-            }
-            if (objective === 'PRIORITY_WEIGHTED') {
-                return weightedScore * 1000 + totalUnits;
-            }
-            // BALANCED : maximise le volume tout en pénalisant les écarts importants
-            const minVal = values.length ? Math.min(...values) : 0;
-            const maxVal = values.length ? Math.max(...values) : 0;
-            const spread = maxVal - minVal;
-            return totalUnits * 100 + minVal * 50 - spread * 20;
         }
 
         function runOptimization() {
-            const objective = document.getElementById('opt-objective').value;
-            const useSfStock = document.getElementById('opt-use-sf-stock').checked;
-            const rows = Array.from(document.querySelectorAll('#opt-products-list [data-opt-code]'));
+            const objective = document.getElementById('opt-objective')?.value || 'MAX_UNITS';
+            const useSf = document.getElementById('opt-use-sf-stock')?.checked ?? true;
 
             const candidates = [];
-            rows.forEach(row => {
-                const enabled = row.querySelector('.opt-enabled')?.checked;
-                if (!enabled) return;
-                const code = row.dataset.optCode;
-                const minVal = Math.max(0, Math.floor(parseFloat(row.querySelector('.opt-min').value) || 0));
-                const maxRaw = row.querySelector('.opt-max').value.trim();
-                const maxVal = maxRaw === '' ? Infinity : Math.max(minVal, Math.floor(parseFloat(maxRaw) || 0));
-                const weight = Math.max(0.1, parseFloat(row.querySelector('.opt-weight').value) || 1);
-                candidates.push({ code, min: minVal, max: maxVal, weight });
+            document.querySelectorAll('.opt-cand-check').forEach(chk => {
+                if (!chk.checked) return;
+                const code = chk.dataset.code;
+                const item = getItemByCode(code);
+                if (!item || !appState.boms[code] || appState.boms[code].length === 0) return;
+
+                const minVal = Math.max(0, parseInt(document.querySelector(`.opt-cand-min[data-code="${code}"]`)?.value || '0', 10) || 0);
+                const maxRaw = document.querySelector(`.opt-cand-max[data-code="${code}"]`)?.value;
+                const userMax = maxRaw && maxRaw.trim() !== '' ? Math.max(minVal, parseInt(maxRaw, 10)) : Infinity;
+                const weight = Math.max(1, parseFloat(document.querySelector(`.opt-cand-weight[data-code="${code}"]`)?.value || '1') || 1);
+
+                const singlePlan = { [code]: 1 };
+                const { leafNeeds } = explodeRequirements(singlePlan, useSf);
+                let maxByStock = Infinity;
+                Object.entries(leafNeeds).forEach(([compCode, needPerUnit]) => {
+                    const comp = getItemByCode(compCode);
+                    if (!comp || comp.category === 'CH' || needPerUnit <= 0) return;
+                    const possible = Math.floor((Number(comp.stock) || 0) / needPerUnit);
+                    if (possible < maxByStock) maxByStock = possible;
+                });
+
+                const upperBound = Math.min(userMax, maxByStock === Infinity ? 1000 : Math.min(maxByStock, 2500));
+                candidates.push({
+                    code,
+                    item,
+                    min: Math.min(minVal, upperBound),
+                    upperBound,
+                    weight
+                });
             });
 
             if (candidates.length === 0) {
-                showToast("Sélectionnez au moins un produit candidat.", "error");
+                renderOptResults({ plan: {}, score: 0 });
                 return;
             }
 
-            // Estimation de la borne supérieure par produit
-            candidates.forEach(c => {
-                let upper = Number.isFinite(c.max) ? c.max : 1000;
-                const bom = appState.boms[c.code] || [];
-                bom.forEach(line => {
-                    const comp = getItemByCode(line.itemCode);
-                    if (!comp || comp.category === 'CH') return;
-                    const unitGross = (Number(line.qty) || 0) * (1 + (Number(line.scrapRate) || 0) / 100);
-                    if (unitGross > 0) {
-                        const avail = comp.category === 'SF' && useSfStock
-                            ? (Number(comp.stock) || 0) + (computeMaxFromSubBom(comp.code, useSfStock) || 0)
-                            : (Number(comp.stock) || 0);
-                        upper = Math.min(upper, Math.floor(avail / unitGross));
-                    }
-                });
-                c.upperBound = Math.max(c.min, Math.min(upper, 1000));
-            });
-
+            let bestScore = -1;
             let bestPlan = {};
-            candidates.forEach(c => { bestPlan[c.code] = c.min; });
-            let bestScore = isPlanFeasible(bestPlan, useSfStock) ? scorePlan(bestPlan, objective, candidates) : -Infinity;
+            candidates.forEach(c => bestPlan[c.code] = c.min);
 
-            const currentPlan = { ...bestPlan };
-            let steps = 0;
-            const MAX_STEPS = 250000;
+            function evaluatePlan(plan) {
+                const { leafNeeds, totalUnits, totalRevenue } = explodeRequirements(plan, useSf);
+                for (const [compCode, need] of Object.entries(leafNeeds)) {
+                    const comp = getItemByCode(compCode);
+                    if (comp && comp.category !== 'CH' && (Number(comp.stock) + 1e-6) < need) {
+                        return -1;
+                    }
+                }
+                if (objective === 'MAX_VALUE') return totalRevenue;
+                if (objective === 'PRIORITY_WEIGHTED') {
+                    return candidates.reduce((acc, c) => acc + (plan[c.code] || 0) * c.weight, 0);
+                }
+                if (objective === 'BALANCED') {
+                    const vals = candidates.map(c => plan[c.code] || 0);
+                    const minQ = Math.min(...vals);
+                    return minQ * 10000 + totalUnits;
+                }
+                return totalUnits;
+            }
 
-            function search(idx) {
-                if (steps++ > MAX_STEPS) return;
+            let iterations = 0;
+            const MAX_ITERATIONS = 12000;
+            const currentPlan = {};
+
+            function branchAndBound(idx) {
+                if (iterations++ > MAX_ITERATIONS) return;
                 if (idx === candidates.length) {
-                    if (isPlanFeasible(currentPlan, useSfStock)) {
-                        const s = scorePlan(currentPlan, objective, candidates);
-                        if (s > bestScore) {
-                            bestScore = s;
-                            bestPlan = { ...currentPlan };
-                        }
+                    const sc = evaluatePlan(currentPlan);
+                    if (sc > bestScore) {
+                        bestScore = sc;
+                        bestPlan = { ...currentPlan };
                     }
                     return;
                 }
 
-                const c = candidates[idx];
-                // Évaluation rapide de faisabilité partielle
-                if (!isPlanFeasible(currentPlan, useSfStock)) return;
-
-                // Priorité aux grandes valeurs pour trouver vite un bon optimum
-                const step = c.upperBound - c.min > 80 ? Math.max(1, Math.floor((c.upperBound - c.min) / 40)) : 1;
-                const valuesToTry = [];
-                for (let v = c.upperBound; v >= c.min; v -= step) {
-                    valuesToTry.push(v);
-                }
-                if (!valuesToTry.includes(c.min)) valuesToTry.push(c.min);
-
-                for (const val of valuesToTry) {
-                    currentPlan[c.code] = val;
-                    if (isPlanFeasible(currentPlan, useSfStock)) {
-                        search(idx + 1);
+                const cand = candidates[idx];
+                const step = cand.upperBound > 120 ? Math.max(1, Math.floor(cand.upperBound / 60)) : 1;
+                for (let val = cand.upperBound; val >= cand.min; val -= step) {
+                    currentPlan[cand.code] = val;
+                    const { leafNeeds } = explodeRequirements(currentPlan, useSf);
+                    let feasible = true;
+                    for (const [compCode, need] of Object.entries(leafNeeds)) {
+                        const comp = getItemByCode(compCode);
+                        if (comp && comp.category !== 'CH' && (Number(comp.stock) + 1e-6) < need) {
+                            feasible = false;
+                            break;
+                        }
+                    }
+                    if (feasible) {
+                        branchAndBound(idx + 1);
+                    }
+                    if (val === cand.min) break;
+                    if (val - step < cand.min) {
+                        currentPlan[cand.code] = cand.min;
+                        branchAndBound(idx + 1);
+                        break;
                     }
                 }
-                currentPlan[c.code] = c.min;
+                delete currentPlan[cand.code];
             }
 
-            search(0);
-
-            appState.lastOptimalCombo = bestPlan;
-            saveState();
-            renderOptResults(bestPlan);
-            showToast("Combinaison optimale calculée !", "success");
+            branchAndBound(0);
+            appState.lastOptimalCombo = { plan: bestPlan, score: Math.max(0, bestScore) };
+            renderOptResults(appState.lastOptimalCombo);
         }
 
-        function computeMaxFromSubBom(sfCode, useSfStock) {
-            const lines = appState.boms[sfCode] || [];
-            if (lines.length === 0) return 0;
-            let maxUnits = Infinity;
-            lines.forEach(l => {
-                const comp = getItemByCode(l.itemCode);
-                if (!comp || comp.category === 'CH') return;
-                const unitGross = (Number(l.qty) || 0) * (1 + (Number(l.scrapRate) || 0) / 100);
-                if (unitGross > 0) {
-                    maxUnits = Math.min(maxUnits, Math.floor((Number(comp.stock) || 0) / unitGross));
-                }
-            });
-            return Number.isFinite(maxUnits) ? maxUnits : 0;
-        }
+        function renderOptResults(combo) {
+            const plan = combo?.plan || {};
+            const useSf = document.getElementById('opt-use-sf-stock')?.checked ?? true;
+            const { leafNeeds, totalUnits, totalRevenue } = explodeRequirements(plan, useSf);
 
-        function renderOptResults(plan) {
-            const cardsEl = document.getElementById('opt-best-combo-cards');
-            const bottlenecksEl = document.getElementById('opt-bottlenecks-list');
-            const btnApply = document.getElementById('btn-apply-mrp');
-            const btnExport = document.getElementById('btn-export-opt');
+            const applyBtn = document.getElementById('btn-apply-mrp');
+            const expBtn = document.getElementById('btn-export-opt');
+            if (totalUnits > 0) {
+                applyBtn?.classList.remove('hidden');
+                expBtn?.classList.remove('hidden');
+            } else {
+                applyBtn?.classList.add('hidden');
+                expBtn?.classList.add('hidden');
+            }
 
-            btnApply.classList.remove('hidden');
-            btnExport.classList.remove('hidden');
-
-            const entries = Object.entries(plan || {});
-            let totalUnits = 0;
-            let totalValue = 0;
-
-            cardsEl.innerHTML = entries.map(([code, qtyRaw]) => {
-                const qty = Number(qtyRaw) || 0;
-                const item = getItemByCode(code);
-                const price = Number(item?.price) || 0;
-                totalUnits += qty;
-                totalValue += qty * price;
-
-                return `
-                    <div class="p-4 rounded-xl border border-indigo-200 bg-indigo-50/50">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold uppercase text-indigo-700">${escapeHtml(code)}</span>
-                            <span class="text-xs text-slate-500">${formatDA(qty * price)}</span>
+            const entries = Object.entries(plan).filter(([, q]) => q > 0);
+            document.getElementById('opt-best-combo-cards').innerHTML = entries.length === 0
+                ? `<div class="col-span-3 p-4 bg-slate-50 rounded-xl border border-slate-200 text-center text-xs text-slate-500">Aucune unité réalisable avec les stocks actuels.</div>`
+                : entries.map(([code, qty]) => {
+                    const item = getItemByCode(code);
+                    return `
+                        <div class="p-4 bg-indigo-50/70 rounded-xl border border-indigo-200">
+                            <p class="text-xs font-bold text-indigo-900">${escapeHtml(code)}</p>
+                            <p class="text-[11px] text-indigo-700 truncate">${escapeHtml(item ? item.name : code)}</p>
+                            <p class="text-2xl font-extrabold text-indigo-600 mt-1">${formatNumber(qty, 0)} <span class="text-xs font-medium text-slate-500">${escapeHtml(item?.unit || 'Unité')}</span></p>
                         </div>
-                        <p class="text-2xl font-extrabold text-slate-900 mt-1">${formatNumber(qty, 0)} <span class="text-xs font-normal text-slate-500">${escapeHtml(item?.unit || 'Unité')}</span></p>
-                        <p class="text-xs text-slate-600 truncate mt-0.5">${escapeHtml(item?.name || '')}</p>
-                    </div>
-                `;
-            }).join('') + `
-                <div class="p-4 rounded-xl border border-emerald-200 bg-emerald-50/60 sm:col-span-3 flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                        <span class="text-xs font-bold uppercase text-emerald-800">Volume Total Optimal</span>
-                        <p class="text-xl font-extrabold text-emerald-950">${formatNumber(totalUnits, 0)} unités</p>
-                    </div>
-                    <div class="text-right">
-                        <span class="text-xs font-bold uppercase text-emerald-800">Valeur Estimée</span>
-                        <p class="text-xl font-extrabold text-emerald-950">${formatDA(totalValue)}</p>
-                    </div>
-                </div>
-            `;
+                    `;
+                }).join('') + `
+                <div class="p-4 bg-emerald-50/70 rounded-xl border border-emerald-200">
+                    <p class="text-xs font-bold text-emerald-900">Bilan Global</p>
+                    <p class="text-sm font-bold text-emerald-700 mt-1">${formatNumber(totalUnits, 0)} unités</p>
+                    <p class="text-xs text-emerald-600 mt-0.5">${formatDA(totalRevenue)}</p>
+                </div>`;
 
-            const useSfStock = document.getElementById('opt-use-sf-stock')?.checked ?? true;
-            const { rawRequirements } = explodeRequirements(plan, useSfStock);
-            const usageItems = Object.entries(rawRequirements)
-                .map(([code, used]) => {
+            const usageList = Object.entries(leafNeeds)
+                .map(([code, need]) => {
                     const item = getItemByCode(code);
                     if (!item || item.category === 'CH') return null;
                     const stock = Number(item.stock) || 0;
-                    const pct = stock > 0 ? Math.min(100, (used / stock) * 100) : 0;
-                    return { item, used, stock, pct };
+                    const pct = stock > 0 ? Math.min(100, (need / stock) * 100) : 100;
+                    return { item, need, stock, pct };
                 })
                 .filter(Boolean)
                 .sort((a, b) => b.pct - a.pct);
 
-            if (usageItems.length === 0) {
-                bottlenecksEl.innerHTML = `<p class="text-xs text-slate-400">Aucune matière consommée sur cette combinaison.</p>`;
-            } else {
-                bottlenecksEl.innerHTML = usageItems.map(({ item, used, stock, pct }) => {
-                    const barColor = pct >= 90 ? 'bg-rose-500' : (pct >= 60 ? 'bg-amber-500' : 'bg-emerald-500');
+            document.getElementById('opt-bottlenecks-list').innerHTML = usageList.length === 0
+                ? `<p class="text-xs text-slate-400">Aucune consommation calculée.</p>`
+                : usageList.map(u => {
+                    const barColor = u.pct >= 95 ? 'bg-rose-500' : (u.pct >= 75 ? 'bg-amber-500' : 'bg-emerald-500');
                     return `
-                        <div class="p-3 rounded-xl border border-slate-200/80 bg-slate-50/50">
+                        <div class="p-2.5 bg-slate-50 rounded-lg border border-slate-200/70">
                             <div class="flex justify-between text-xs mb-1">
-                                <span class="font-bold text-slate-800">${escapeHtml(item.code)} <span class="font-normal text-slate-500">(${escapeHtml(item.name)})</span></span>
-                                <span class="font-semibold text-slate-700">${formatNumber(used, 2)} / ${formatNumber(stock, 2)} ${escapeHtml(item.unit)} (${pct.toFixed(1)}%)</span>
+                                <span class="font-bold text-slate-700">${escapeHtml(u.item.code)} <span class="font-normal text-slate-500">${escapeHtml(u.item.name)}</span></span>
+                                <span class="font-semibold text-slate-700">${formatNumber(u.need, 2)} / ${formatNumber(u.stock, 2)} ${escapeHtml(u.item.unit)} (${u.pct.toFixed(0)}%)</span>
                             </div>
                             <div class="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-                                <div class="${barColor} h-full rounded-full transition-all duration-300" style="width: ${pct.toFixed(1)}%"></div>
+                                <div class="h-full ${barColor}" style="width: ${u.pct}%"></div>
                             </div>
                         </div>
                     `;
                 }).join('');
-            }
         }
 
         function applyOptimalToMrp() {
-            if (!appState.lastOptimalCombo) return;
-            appState.items.filter(i => i.category === 'PF').forEach(pf => {
-                appState.mrpPlan[pf.code] = Number(appState.lastOptimalCombo[pf.code]) || 0;
+            if (!appState.lastOptimalCombo || !appState.lastOptimalCombo.plan) return;
+            Object.keys(appState.mrpPlan).forEach(k => appState.mrpPlan[k] = 0);
+            Object.entries(appState.lastOptimalCombo.plan).forEach(([code, qty]) => {
+                appState.mrpPlan[code] = qty;
             });
             saveState();
             switchTab('tab-mrp');
-            showToast("Plan optimal chargé dans l'onglet Production / MRP.", "success");
+            showToast("Combinaison optimale chargée dans le plan MRP / OF.", "success");
         }
 
         // =========================================================================
-        // 8. MOUVEMENTS DE STOCK & ORDRES DE FABRICATION (ONGLET 5)
+        // 7. JOURNAL DES MOUVEMENTS DE STOCK (ONGLET 5)
         // =========================================================================
         function toggleWarehouseFields() {
-            const type = document.getElementById('mov-type').value;
+            const type = document.getElementById('mov-type')?.value;
             const box = document.getElementById('mov-warehouses-box');
-            if (type === 'TRANSFER') {
-                box.classList.remove('hidden');
-            } else {
-                box.classList.add('hidden');
-            }
+            if (!box) return;
+            if (type === 'TRANSFER') box.classList.remove('hidden');
+            else box.classList.add('hidden');
         }
 
         function renderMovementsTab() {
-            const select = document.getElementById('mov-article-code');
-            if (select) {
-                select.innerHTML = appState.items
+            const sel = document.getElementById('mov-article-code');
+            if (sel) {
+                sel.innerHTML = appState.items
                     .filter(i => i.category !== 'CH')
                     .map(i => `<option value="${escapeHtml(i.code)}">${escapeHtml(i.code)} — ${escapeHtml(i.name)} (Stock: ${formatNumber(i.stock, 2)} ${escapeHtml(i.unit)})</option>`)
                     .join('');
@@ -2354,23 +1983,31 @@
             if (!tbody) return;
 
             if (appState.movements.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-slate-400">Aucun mouvement enregistré pour le moment.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-slate-400">Aucun mouvement enregistré. Validez un Ordre de Fabrication ou saisissez une réception.</td></tr>`;
                 return;
             }
 
+            const typeBadges = {
+                'RECEIPT': 'bg-emerald-100 text-emerald-800',
+                'PRODUCTION': 'bg-indigo-100 text-indigo-800',
+                'CONSUMPTION': 'bg-amber-100 text-amber-800',
+                'TRANSFER': 'bg-sky-100 text-sky-800',
+                'ADJUSTMENT': 'bg-slate-200 text-slate-800'
+            };
+
             tbody.innerHTML = appState.movements.map(m => {
-                const dateFmt = new Date(m.createdAt).toLocaleString('fr-FR');
-                const qty = Number(m.quantity) || 0;
-                const qtyCls = qty >= 0 ? 'text-emerald-700 font-bold' : 'text-rose-600 font-bold';
-                const whInfo = (m.warehouseFrom || m.warehouseTo) ? ` • ${m.warehouseFrom || '?'} → ${m.warehouseTo || '?'}` : '';
+                const d = new Date(m.date);
+                const dateStr = isNaN(d.getTime()) ? m.date : d.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+                const qtyCls = m.quantity >= 0 ? 'text-emerald-600' : 'text-rose-600';
+                const qtyPrefix = m.quantity > 0 ? '+' : '';
                 return `
                     <tr class="hover:bg-slate-50">
-                        <td class="py-2.5 px-3 text-slate-500 whitespace-nowrap">${escapeHtml(dateFmt)}</td>
-                        <td class="py-2.5 px-3 font-semibold text-slate-800">${escapeHtml(m.movementType)}</td>
-                        <td class="py-2.5 px-3 font-bold text-indigo-700">${escapeHtml(m.articleCode)}</td>
-                        <td class="py-2.5 px-3 text-right ${qtyCls}">${qty > 0 ? '+' : ''}${formatNumber(qty, 4)}</td>
-                        <td class="py-2.5 px-3 text-slate-600">${escapeHtml(m.reference || '-')}${escapeHtml(whInfo)}</td>
-                        <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">${escapeHtml(m.role || 'ADMIN')}</span></td>
+                        <td class="py-2.5 px-3 text-slate-500 whitespace-nowrap">${escapeHtml(dateStr)}</td>
+                        <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${typeBadges[m.type] || 'bg-slate-100'}">${escapeHtml(m.type)}</span></td>
+                        <td class="py-2.5 px-3 font-bold text-slate-800">${escapeHtml(m.articleCode)}</td>
+                        <td class="py-2.5 px-3 text-right font-bold ${qtyCls}">${qtyPrefix}${formatNumber(m.quantity, 3)}</td>
+                        <td class="py-2.5 px-3 text-slate-600">${escapeHtml(m.reference || '—')}${m.warehouseFrom || m.warehouseTo ? ` (${escapeHtml(m.warehouseFrom || '')} → ${escapeHtml(m.warehouseTo || '')})` : ''}</td>
+                        <td class="py-2.5 px-3 text-slate-500">${escapeHtml(m.role || 'ADMIN')}</td>
                     </tr>
                 `;
             }).join('');
@@ -2380,95 +2017,496 @@
             event.preventDefault();
             const type = document.getElementById('mov-type').value;
             if (type === 'TRANSFER' && !hasPermission('TRANSFER')) {
-                showToast(`Le rôle ${appState.activeRole} ne permet pas les transferts.`, "error");
+                showToast(`Le rôle ${appState.activeRole} ne peut pas faire de transfert.`, "error");
                 return;
             }
             if (type !== 'TRANSFER' && !hasPermission('RECEIPT')) {
-                showToast(`Le rôle ${appState.activeRole} ne permet pas cet enregistrement.`, "error");
+                showToast(`Le rôle ${appState.activeRole} ne peut pas enregistrer ce mouvement.`, "error");
                 return;
             }
 
             const code = document.getElementById('mov-article-code').value;
-            const item = getItemByCode(code);
-            const qty = parseFloat(document.getElementById('mov-qty').value);
-            const cost = parseFloat(document.getElementById('mov-cost').value) || 0;
-            const ref = document.getElementById('mov-ref').value.trim() || `MVT-${Date.now().toString().slice(-5)}`;
-            const whFrom = document.getElementById('mov-wh-from').value.trim();
-            const whTo = document.getElementById('mov-wh-to').value.trim();
+            const qty = parseFrenchNumber(document.getElementById('mov-qty').value);
+            const cost = Math.max(0, parseFrenchNumber(document.getElementById('mov-cost').value) || 0);
+            const ref = document.getElementById('mov-ref').value.trim();
+            const whFrom = document.getElementById('mov-wh-from')?.value.trim() || '';
+            const whTo = document.getElementById('mov-wh-to')?.value.trim() || '';
 
+            const item = getItemByCode(code);
             if (!item || isNaN(qty) || qty === 0) {
-                showToast("Saisissez une quantité non nulle.", "error");
+                showToast("Veuillez saisir une quantité non nulle.", "error");
                 return;
             }
 
             if (type === 'RECEIPT') {
-                const absQty = Math.abs(qty);
-                if (cost > 0) {
-                    const oldStock = Math.max(0, Number(item.stock) || 0);
-                    const oldPrice = Number(item.price) || 0;
-                    const newStock = oldStock + absQty;
-                    item.price = newStock > 0 ? ((oldStock * oldPrice) + (absQty * cost)) / newStock : cost;
-                    item.stock = newStock;
-                } else {
-                    item.stock = (Number(item.stock) || 0) + absQty;
+                const addQty = Math.abs(qty);
+                if (cost > 0 && (item.stock + addQty) > 0) {
+                    item.price = Number((((item.stock * item.price) + (addQty * cost)) / (item.stock + addQty)).toFixed(4));
                 }
-                appState.movements.unshift({
-                    id: generateUUID(),
-                    clientOperationId: generateUUID(),
-                    articleCode: item.code,
-                    movementType: 'RECEIPT',
-                    quantity: absQty,
-                    unitCostDa: cost || item.price || 0,
-                    reference: ref,
-                    warehouseFrom: whFrom,
-                    warehouseTo: whTo || 'Dépôt Central',
-                    role: appState.activeRole,
-                    createdAt: new Date().toISOString()
-                });
+                item.stock = Number((item.stock + addQty).toFixed(6));
             } else if (type === 'ADJUSTMENT') {
-                item.stock = Math.max(0, (Number(item.stock) || 0) + qty);
-                appState.movements.unshift({
-                    id: generateUUID(),
-                    clientOperationId: generateUUID(),
-                    articleCode: item.code,
-                    movementType: 'ADJUSTMENT',
-                    quantity: qty,
-                    unitCostDa: cost || item.price || 0,
-                    reference: ref,
-                    warehouseFrom: whFrom,
-                    warehouseTo: whTo,
-                    role: appState.activeRole,
-                    createdAt: new Date().toISOString()
-                });
-            } else if (type === 'TRANSFER') {
-                appState.movements.unshift({
-                    id: generateUUID(),
-                    clientOperationId: generateUUID(),
-                    articleCode: item.code,
-                    movementType: 'TRANSFER',
-                    quantity: Math.abs(qty),
-                    unitCostDa: cost || item.price || 0,
-                    reference: ref,
-                    warehouseFrom: whFrom || 'Dépôt A',
-                    warehouseTo: whTo || 'Dépôt B',
-                    role: appState.activeRole,
-                    createdAt: new Date().toISOString()
-                });
+                item.stock = Math.max(0, Number((item.stock + qty).toFixed(6)));
             }
 
-            event.target.reset();
-            toggleWarehouseFields();
+            appState.movements.unshift({
+                id: generateUUID(),
+                date: new Date().toISOString(),
+                type,
+                articleCode: item.code,
+                quantity: type === 'RECEIPT' ? Math.abs(qty) : qty,
+                unitCost: cost || item.price || 0,
+                reference: ref || `MVT-${Date.now().toString().slice(-5)}`,
+                warehouseFrom: whFrom,
+                warehouseTo: whTo,
+                role: appState.activeRole
+            });
+
             saveState();
             renderAll();
+            document.getElementById('mov-qty').value = '';
+            document.getElementById('mov-ref').value = '';
             showToast(`Mouvement ${type} enregistré pour ${item.code}.`, "success");
         }
 
         // =========================================================================
-        // 9. RENDU GLOBAL & INITIALISATION
+        // 8. EXPORT T-SQL POUR SQL SERVER / SSMS (TAHWEEL-DZ-2\SQLEXPRESS)
+        // =========================================================================
+        function sqlEscape(str) {
+            return String(str ?? '').replace(/'/g, "''");
+        }
+
+        function exportSQLServer() {
+            const now = new Date();
+            const dateTag = now.toISOString().slice(0, 10);
+            const lines = [];
+
+            lines.push(`-- ==========================================================================`);
+            lines.push(`-- Script de synchronisation T-SQL (Microsoft SQL Server / SSMS)`);
+            lines.push(`-- Généré par OptiProd MRP le ${now.toISOString()} | Rôle : ${appState.activeRole}`);
+            lines.push(`-- Serveur cible : TAHWEEL-DZ-2\\SQLEXPRESS | Base : OptiProd_STK`);
+            lines.push(`-- ==========================================================================`);
+            lines.push(``);
+            lines.push(`USE OptiProd_STK;`);
+            lines.push(`GO`);
+            lines.push(``);
+            lines.push(`SET XACT_ABORT ON;`);
+            lines.push(`BEGIN TRANSACTION;`);
+            lines.push(``);
+
+            lines.push(`-- 1. SYNCHRONISATION DES ARTICLES & STOCKS (dbo.article)`);
+            appState.items.forEach(item => {
+                const ref = sqlEscape(item.code);
+                const desig = sqlEscape(item.name);
+                const cat = sqlEscape(item.category);
+                const unit = sqlEscape(item.unit);
+                const qty = Number(item.stock) || 0;
+                const pmp = Number(item.price) || 0;
+
+                lines.push(`MERGE dbo.article AS target`);
+                lines.push(`USING (SELECT N'${ref}' AS reference, N'${desig}' AS designation, N'${cat}' AS category, N'${unit}' AS unit, ${qty} AS stock_quantity, ${pmp} AS pmp_da) AS source`);
+                lines.push(`ON (target.reference = source.reference)`);
+                lines.push(`WHEN MATCHED THEN`);
+                lines.push(`    UPDATE SET designation = source.designation, category = source.category, unit = source.unit, stock_quantity = source.stock_quantity, pmp_da = source.pmp_da, updated_at = GETDATE()`);
+                lines.push(`WHEN NOT MATCHED THEN`);
+                lines.push(`    INSERT (reference, designation, category, unit, stock_quantity, pmp_da, active, created_at, updated_at)`);
+                lines.push(`    VALUES (source.reference, source.designation, source.category, source.unit, source.stock_quantity, source.pmp_da, 1, GETDATE(), GETDATE());`);
+                lines.push(``);
+            });
+
+            lines.push(`-- 2. SYNCHRONISATION DES NOMENCLATURES (dbo.bom_version & dbo.bom_line)`);
+            Object.entries(appState.boms).forEach(([parentCode, bomLines]) => {
+                if (!bomLines || bomLines.length === 0) return;
+                const pRef = sqlEscape(parentCode);
+                const ver = sqlEscape(appState.bomVersions[parentCode] || 'V1.0');
+
+                lines.push(`IF NOT EXISTS (`);
+                lines.push(`    SELECT 1 FROM dbo.bom_version bv`);
+                lines.push(`    INNER JOIN dbo.article a ON a.id = bv.finished_article_id`);
+                lines.push(`    WHERE a.reference = N'${pRef}' AND bv.version = N'${ver}'`);
+                lines.push(`)`);
+                lines.push(`BEGIN`);
+                lines.push(`    INSERT INTO dbo.bom_version (finished_article_id, version, active)`);
+                lines.push(`    SELECT id, N'${ver}', 1 FROM dbo.article WHERE reference = N'${pRef}';`);
+                lines.push(`END;`);
+                lines.push(``);
+
+                bomLines.forEach(bl => {
+                    const cRef = sqlEscape(bl.itemCode);
+                    const q = Number(bl.qty) || 0;
+                    const scrap = Number(bl.scrapRate) || 0;
+
+                    lines.push(`MERGE dbo.bom_line AS target`);
+                    lines.push(`USING (`);
+                    lines.push(`    SELECT bv.id AS bom_version_id, comp.id AS component_article_id, ${q} AS quantity, ${scrap} AS scrap_rate`);
+                    lines.push(`    FROM dbo.bom_version bv`);
+                    lines.push(`    INNER JOIN dbo.article fin ON fin.id = bv.finished_article_id AND fin.reference = N'${pRef}'`);
+                    lines.push(`    INNER JOIN dbo.article comp ON comp.reference = N'${cRef}'`);
+                    lines.push(`    WHERE bv.version = N'${ver}'`);
+                    lines.push(`) AS source`);
+                    lines.push(`ON (target.bom_version_id = source.bom_version_id AND target.component_article_id = source.component_article_id)`);
+                    lines.push(`WHEN MATCHED THEN`);
+                    lines.push(`    UPDATE SET quantity = source.quantity, scrap_rate = source.scrap_rate`);
+                    lines.push(`WHEN NOT MATCHED THEN`);
+                    lines.push(`    INSERT (bom_version_id, component_article_id, quantity, scrap_rate)`);
+                    lines.push(`    VALUES (source.bom_version_id, source.component_article_id, source.quantity, source.scrap_rate);`);
+                    lines.push(``);
+                });
+            });
+
+            if (appState.movements.length > 0) {
+                lines.push(`-- 3. SYNCHRONISATION DES MOUVEMENTS DE STOCK (dbo.stock_movement)`);
+                appState.movements.forEach(m => {
+                    const opId = sqlEscape(m.id || generateUUID());
+                    const aRef = sqlEscape(m.articleCode);
+                    const mType = sqlEscape(m.type);
+                    const qty = Number(m.quantity) || 0;
+                    const cost = Number(m.unitCost) || 0;
+                    const docRef = sqlEscape(m.reference || '');
+                    const wFrom = sqlEscape(m.warehouseFrom || '');
+                    const wTo = sqlEscape(m.warehouseTo || '');
+
+                    lines.push(`IF NOT EXISTS (SELECT 1 FROM dbo.stock_movement WHERE client_operation_id = '${opId}')`);
+                    lines.push(`BEGIN`);
+                    lines.push(`    INSERT INTO dbo.stock_movement (article_id, movement_type, quantity, unit_cost_da, reference, warehouse_from, warehouse_to, client_operation_id, created_at)`);
+                    lines.push(`    SELECT id, N'${mType}', ${qty}, ${cost}, N'${docRef}', N'${wFrom}', N'${wTo}', '${opId}', GETDATE()`);
+                    lines.push(`    FROM dbo.article WHERE reference = N'${aRef}';`);
+                    lines.push(`END;`);
+                    lines.push(``);
+                });
+            }
+
+            lines.push(`COMMIT TRANSACTION;`);
+            lines.push(`GO`);
+
+            downloadBlobFile(lines.join('\r\n'), `optiprod_ssms_sync_${dateTag}.sql`, 'application/sql;charset=utf-8');
+            showToast(`Script SQL Server généré (${appState.items.length} articles).`, "success");
+        }
+
+        // =========================================================================
+        // 9. IMPORT / EXPORT EXCEL (.XLSX) & JSON
+        // =========================================================================
+        function parseFrenchNumber(val) {
+            if (typeof val === 'number') return val;
+            if (val === null || val === undefined) return NaN;
+            let s = String(val).trim();
+            if (!s) return NaN;
+            s = s.replace(/[\s\u00A0\u202F]/g, '');
+            if (s.includes(',') && s.includes('.')) {
+                if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+                    s = s.replace(/\./g, '').replace(',', '.');
+                } else {
+                    s = s.replace(/,/g, '');
+                }
+            } else if (s.includes(',')) {
+                s = s.replace(',', '.');
+            }
+            s = s.replace(/[^0-9.\-]/g, '');
+            return parseFloat(s);
+        }
+
+        function downloadBlobFile(content, filename, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function exportBackupJSON() {
+            const dateTag = new Date().toISOString().slice(0, 10);
+            const payload = JSON.stringify({
+                activeRole: appState.activeRole,
+                items: appState.items,
+                boms: appState.boms,
+                bomVersions: appState.bomVersions,
+                mrpPlan: appState.mrpPlan,
+                movements: appState.movements,
+                productionOrders: appState.productionOrders
+            }, null, 2);
+            downloadBlobFile(payload, `optiprod_backup_${dateTag}.json`, 'application/json');
+            showToast("Sauvegarde JSON téléchargée.", "success");
+        }
+
+        function triggerImportJSON() {
+            document.getElementById('import-json-input')?.click();
+        }
+
+        function handleImportJSON(event) {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const parsed = JSON.parse(e.target.result);
+                    const clean = sanitizeState(parsed);
+                    Object.assign(appState, clean);
+                    saveState();
+                    renderAll();
+                    showToast(`Sauvegarde restaurée (${appState.items.length} articles).`, "success");
+                } catch (err) {
+                    showToast("Fichier JSON invalide.", "error");
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+        }
+
+        function exportAllDataCSV() {
+            if (typeof XLSX === 'undefined') {
+                showToast("Bibliothèque Excel non chargée.", "error");
+                return;
+            }
+            const rows = appState.items.map(i => ({
+                'Reference': i.code,
+                'Designation': i.name,
+                'Categorie': i.category,
+                'Stock': Number(i.stock) || 0,
+                'Unite': i.unit,
+                'PMP_DA': Number(i.price) || 0
+            }));
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Articles_Stocks');
+            XLSX.writeFile(wb, `optiprod_articles_stocks_${new Date().toISOString().slice(0, 10)}.xlsx`);
+            showToast("Fichier Excel (.xlsx) des articles exporté.", "success");
+        }
+
+        function triggerImportStocksCSV() {
+            document.getElementById('import-csv-input')?.click();
+        }
+
+        function normalizeCategory(rawCat) {
+            const c = String(rawCat || '').trim().toUpperCase();
+            if (c.startsWith('MP') || c.includes('MATI')) return 'MP';
+            if (c.startsWith('EMB') || c.includes('EMBALL')) return 'EMB';
+            if (c.startsWith('SF') || c.includes('SEMI')) return 'SF';
+            if (c.startsWith('PF') || c.includes('FINI')) return 'PF';
+            if (c.startsWith('CH') || c.includes('CHARGE') || c.includes('FRAIS')) return 'CH';
+            return 'MP';
+        }
+
+        function handleImportStocksCSV(event) {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            if (file.size === 0) {
+                showToast("Erreur : le fichier sélectionné est vide (0 octet).", "error");
+                event.target.value = '';
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const wb = XLSX.read(data, { type: 'array' });
+                    const sheet = wb.Sheets[wb.SheetNames[0]];
+                    const jsonRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+                    if (!jsonRows || jsonRows.length === 0) {
+                        showToast("Aucune ligne détectée dans le fichier.", "error");
+                        return;
+                    }
+
+                    let importedCount = 0;
+                    jsonRows.forEach(row => {
+                        const keys = Object.keys(row);
+                        const findVal = (patterns) => {
+                            const k = keys.find(key => patterns.some(p => key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes(p)));
+                            return k ? row[k] : '';
+                        };
+
+                        const code = String(findVal(['ref', 'code', 'article']) || '').trim().toUpperCase();
+                        if (!code) return;
+
+                        const name = String(findVal(['desig', 'nom', 'libelle', 'name']) || code).trim();
+                        const cat = normalizeCategory(findVal(['cat', 'type']));
+                        const stockVal = parseFrenchNumber(findVal(['stock', 'qte', 'quantite', 'qty']));
+                        const unit = String(findVal(['unit', 'u.m']) || 'Unité').trim();
+                        const priceVal = parseFrenchNumber(findVal(['pmp', 'prix', 'cout', 'price', 'cost']));
+
+                        const existing = getItemByCode(code);
+                        if (existing) {
+                            if (name && name !== code) existing.name = name;
+                            existing.category = cat;
+                            if (!isNaN(stockVal)) existing.stock = Math.max(0, stockVal);
+                            if (unit) existing.unit = unit;
+                            if (!isNaN(priceVal)) existing.price = Math.max(0, priceVal);
+                        } else {
+                            appState.items.push({
+                                code,
+                                name,
+                                category: cat,
+                                stock: isNaN(stockVal) ? 0 : Math.max(0, stockVal),
+                                unit: unit || 'Unité',
+                                price: isNaN(priceVal) ? 0 : Math.max(0, priceVal)
+                            });
+                            if (cat === 'PF') appState.mrpPlan[code] = 0;
+                        }
+                        importedCount++;
+                    });
+
+                    saveState();
+                    renderAll();
+                    showToast(`${importedCount} article(s) importé(s) / mis à jour avec succès.`, "success");
+                } catch (err) {
+                    console.error(err);
+                    showToast("Impossible de lire le fichier Excel/CSV.", "error");
+                }
+            };
+            reader.readAsArrayBuffer(file);
+            event.target.value = '';
+        }
+
+        function exportBomXLSX() {
+            if (typeof XLSX === 'undefined') return;
+            const rows = [];
+            Object.entries(appState.boms).forEach(([parentCode, lines]) => {
+                const parent = getItemByCode(parentCode);
+                const ver = appState.bomVersions[parentCode] || 'V1.0';
+                (lines || []).forEach(l => {
+                    const comp = getItemByCode(l.itemCode);
+                    rows.push({
+                        'Produit_Parent': parentCode,
+                        'Designation_Parent': parent ? parent.name : '',
+                        'Composant': l.itemCode,
+                        'Designation_Composant': comp ? comp.name : '',
+                        'Quantite': Number(l.qty) || 0,
+                        'Perte_Pct': Number(l.scrapRate) || 0,
+                        'Version': ver
+                    });
+                });
+            });
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Nomenclatures_BOM');
+            XLSX.writeFile(wb, `optiprod_nomenclatures_${new Date().toISOString().slice(0, 10)}.xlsx`);
+            showToast("Nomenclatures exportées en Excel (.xlsx).", "success");
+        }
+
+        function triggerImportBomXLSX() {
+            document.getElementById('import-bom-input')?.click();
+        }
+
+        function handleImportBomXLSX(event) {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const wb = XLSX.read(data, { type: 'array' });
+                    const sheet = wb.Sheets[wb.SheetNames[0]];
+                    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+                    let count = 0;
+                    const touchedParents = new Set();
+
+                    rows.forEach(row => {
+                        const keys = Object.keys(row);
+                        const findVal = (patterns) => {
+                            const k = keys.find(key => patterns.some(p => key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes(p)));
+                            return k ? row[k] : '';
+                        };
+
+                        const parentCode = String(findVal(['parent', 'fini', 'pf', 'produit']) || '').trim().toUpperCase();
+                        const compCode = String(findVal(['comp', 'matiere', 'ingredient', 'article']) || '').trim().toUpperCase();
+                        const qty = parseFrenchNumber(findVal(['qte', 'quantite', 'qty', 'besoin']));
+                        const scrap = Math.max(0, parseFrenchNumber(findVal(['perte', 'rebut', 'scrap'])) || 0);
+                        const ver = String(findVal(['ver']) || 'V1.0').trim();
+
+                        if (!parentCode || !compCode || isNaN(qty) || qty <= 0) return;
+
+                        if (!getItemByCode(parentCode)) {
+                            appState.items.push({ code: parentCode, name: parentCode, category: 'PF', stock: 0, unit: 'Unité', price: 0 });
+                            appState.mrpPlan[parentCode] = 0;
+                        }
+                        if (!getItemByCode(compCode)) {
+                            appState.items.push({ code: compCode, name: compCode, category: 'MP', stock: 0, unit: 'Unité', price: 0 });
+                        }
+
+                        if (!touchedParents.has(parentCode)) {
+                            appState.boms[parentCode] = [];
+                            touchedParents.add(parentCode);
+                        }
+                        appState.bomVersions[parentCode] = ver || 'V1.0';
+
+                        const existing = appState.boms[parentCode].find(l => l.itemCode === compCode);
+                        if (existing) {
+                            existing.qty = qty;
+                            existing.scrapRate = scrap;
+                        } else {
+                            appState.boms[parentCode].push({ itemCode: compCode, qty, scrapRate: scrap });
+                        }
+                        count++;
+                    });
+
+                    saveState();
+                    renderAll();
+                    showToast(`${count} ligne(s) de nomenclature importée(s).`, "success");
+                } catch (err) {
+                    console.error(err);
+                    showToast("Erreur lors de l'import des nomenclatures.", "error");
+                }
+            };
+            reader.readAsArrayBuffer(file);
+            event.target.value = '';
+        }
+
+        function exportMrpCSV() {
+            if (typeof XLSX === 'undefined') return;
+            const useSf = document.getElementById('mrp-use-sf-stock')?.checked ?? true;
+            const { leafNeeds } = explodeRequirements(appState.mrpPlan, useSf);
+            const rows = Object.entries(leafNeeds).map(([code, need]) => {
+                const item = getItemByCode(code);
+                const stock = item ? Number(item.stock) || 0 : 0;
+                return {
+                    'Reference': code,
+                    'Designation': item ? item.name : code,
+                    'Categorie': item ? item.category : '',
+                    'Besoin_Total': Number(need.toFixed(4)),
+                    'Stock_Actuel': stock,
+                    'Solde': item?.category === 'CH' ? 0 : Number((stock - need).toFixed(4)),
+                    'Unite': item ? item.unit : ''
+                };
+            });
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Besoins_MRP');
+            XLSX.writeFile(wb, `optiprod_besoins_mrp_${new Date().toISOString().slice(0, 10)}.xlsx`);
+            showToast("Besoins MRP exportés en Excel (.xlsx).", "success");
+        }
+
+        function exportOptimalCSV() {
+            if (typeof XLSX === 'undefined' || !appState.lastOptimalCombo) return;
+            const rows = Object.entries(appState.lastOptimalCombo.plan)
+                .filter(([, q]) => q > 0)
+                .map(([code, qty]) => {
+                    const item = getItemByCode(code);
+                    return {
+                        'Produit_Fini': code,
+                        'Designation': item ? item.name : code,
+                        'Quantite_Optimale': qty,
+                        'Valeur_DA': qty * (item?.price || 0)
+                    };
+                });
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Combinaison_Optimale');
+            XLSX.writeFile(wb, `optiprod_optimisation_${new Date().toISOString().slice(0, 10)}.xlsx`);
+            showToast("Combinaison optimale exportée en Excel (.xlsx).", "success");
+        }
+
+        // =========================================================================
+        // 10. RENDU GLOBAL & DÉMARRAGE
         // =========================================================================
         function renderAll() {
-            const roleSelect = document.getElementById('active-role-select');
-            if (roleSelect) roleSelect.value = appState.activeRole;
+            const roleSel = document.getElementById('active-role-select');
+            if (roleSel) roleSel.value = appState.activeRole;
+
             renderKpis();
             renderItemsTable();
             renderBomTab();
@@ -2482,419 +2520,7 @@
             renderAll();
         }
 
-        // =========================================================================
-        // 10. EXPORTS & IMPORTS (SQL POSTGRESQL, JSON & EXCEL .XLSX)
-        // =========================================================================
-        function downloadFile(filename, content, mimeType) {
-            const blob = new Blob([content], { type: mimeType });
-            const link = document.createElement("a");
-            const url = URL.createObjectURL(blob);
-            link.setAttribute("href", url);
-            link.setAttribute("download", filename);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-        }
-
-        function downloadXLSX(filename, sheets) {
-            if (typeof XLSX === 'undefined') {
-                showToast("Bibliothèque Excel (.xlsx) non chargée. Vérifiez votre connexion Internet.", "error");
-                return;
-            }
-            const wb = XLSX.utils.book_new();
-            sheets.forEach(({ name, rows }) => {
-                const ws = XLSX.utils.aoa_to_sheet(rows);
-                // Ajustement automatique simple de la largeur des colonnes
-                const colWidths = [];
-                rows.forEach(row => {
-                    row.forEach((cell, idx) => {
-                        const len = cell !== null && cell !== undefined ? String(cell).length : 10;
-                        colWidths[idx] = Math.max(colWidths[idx] || 12, Math.min(len + 4, 45));
-                    });
-                });
-                ws['!cols'] = colWidths.map(wch => ({ wch }));
-                XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
-            });
-            XLSX.writeFile(wb, filename);
-        }
-
-        function escapeSqlStr(str) {
-            if (str === null || str === undefined) return 'NULL';
-            return "'" + String(str).replace(/'/g, "''") + "'";
-        }
-
-        function exportPostgreSQL() {
-            const dateStr = new Date().toISOString().slice(0, 10);
-            let sql = `-- ==========================================================================\n`;
-            sql += `-- Script de synchronisation PostgreSQL généré par OptiProd MRP\n`;
-            sql += `-- Date : ${new Date().toISOString()} | Rôle : ${appState.activeRole}\n`;
-            sql += `-- Compatible avec database/schema.sql\n`;
-            sql += `-- ==========================================================================\n\n`;
-            sql += `BEGIN;\n\n`;
-
-            // 1. Synchronisation des articles
-            sql += `-- 1. ARTICLES & STOCKS\n`;
-            appState.items.forEach(item => {
-                sql += `INSERT INTO article (reference, designation, category, unit, stock_quantity, pmp_da, active, updated_at)\n`;
-                sql += `VALUES (${escapeSqlStr(item.code)}, ${escapeSqlStr(item.name)}, ${escapeSqlStr(item.category)}, ${escapeSqlStr(item.unit)}, ${Number(item.stock) || 0}, ${Number(item.price) || 0}, TRUE, NOW())\n`;
-                sql += `ON CONFLICT (reference) DO UPDATE SET\n`;
-                sql += `    designation = EXCLUDED.designation,\n`;
-                sql += `    category = EXCLUDED.category,\n`;
-                sql += `    unit = EXCLUDED.unit,\n`;
-                sql += `    stock_quantity = EXCLUDED.stock_quantity,\n`;
-                sql += `    pmp_da = EXCLUDED.pmp_da,\n`;
-                sql += `    updated_at = NOW();\n\n`;
-            });
-
-            // 2. Synchronisation des nomenclatures (bom_version & bom_line)
-            sql += `-- 2. NOMENCLATURES MULTI-NIVEAUX (BOM)\n`;
-            Object.entries(appState.boms).forEach(([parentCode, lines]) => {
-                if (!Array.isArray(lines) || lines.length === 0) return;
-                const version = appState.bomVersions[parentCode] || 'V1.0';
-                sql += `INSERT INTO bom_version (finished_article_id, version, effective_from, active)\n`;
-                sql += `SELECT id, ${escapeSqlStr(version)}, CURRENT_DATE, TRUE FROM article WHERE reference = ${escapeSqlStr(parentCode)}\n`;
-                sql += `ON CONFLICT (finished_article_id, version) DO NOTHING;\n`;
-
-                lines.forEach(line => {
-                    const scrap = Number(line.scrapRate) || 0;
-                    sql += `INSERT INTO bom_line (bom_version_id, component_article_id, quantity, scrap_rate)\n`;
-                    sql += `SELECT bv.id, comp.id, ${Number(line.qty) || 0}, ${scrap}\n`;
-                    sql += `FROM bom_version bv\n`;
-                    sql += `JOIN article fin ON fin.id = bv.finished_article_id AND fin.reference = ${escapeSqlStr(parentCode)}\n`;
-                    sql += `JOIN article comp ON comp.reference = ${escapeSqlStr(line.itemCode)}\n`;
-                    sql += `WHERE bv.version = ${escapeSqlStr(version)}\n`;
-                    sql += `ON CONFLICT (bom_version_id, component_article_id) DO UPDATE SET\n`;
-                    sql += `    quantity = EXCLUDED.quantity,\n`;
-                    sql += `    scrap_rate = EXCLUDED.scrap_rate;\n`;
-                });
-                sql += `\n`;
-            });
-
-            // 3. Synchronisation des mouvements de stock
-            if (appState.movements.length > 0) {
-                sql += `-- 3. MOUVEMENTS DE STOCK (IDEMPOTENTS VIA client_operation_id)\n`;
-                appState.movements.forEach(m => {
-                    sql += `INSERT INTO stock_movement (article_id, movement_type, quantity, unit_cost_da, reference, warehouse_from, warehouse_to, client_operation_id, created_at)\n`;
-                    sql += `SELECT id, ${escapeSqlStr(m.movementType)}, ${Number(m.quantity) || 0}, ${Number(m.unitCostDa) || 0}, ${escapeSqlStr(m.reference)}, ${escapeSqlStr(m.warehouseFrom)}, ${escapeSqlStr(m.warehouseTo)}, ${escapeSqlStr(m.clientOperationId)}::uuid, ${escapeSqlStr(m.createdAt)}::timestamptz\n`;
-                    sql += `FROM article WHERE reference = ${escapeSqlStr(m.articleCode)}\n`;
-                    sql += `ON CONFLICT (client_operation_id) DO NOTHING;\n`;
-                });
-                sql += `\n`;
-            }
-
-            sql += `COMMIT;\n`;
-            downloadFile(`stk_sync_postgresql_${dateStr}.sql`, sql, 'application/sql;charset=utf-8;');
-            showToast("Script SQL PostgreSQL téléchargé !", "success");
-        }
-
-        function exportBackupJSON() {
-            const dateStr = new Date().toISOString().slice(0, 10);
-            const backupPayload = {
-                app: "OptiProd MRP",
-                version: "2.0",
-                exportedAt: new Date().toISOString(),
-                data: {
-                    activeRole: appState.activeRole,
-                    items: appState.items,
-                    boms: appState.boms,
-                    bomVersions: appState.bomVersions,
-                    mrpPlan: appState.mrpPlan,
-                    movements: appState.movements,
-                    productionOrders: appState.productionOrders
-                }
-            };
-            downloadFile(`optiprod_sauvegarde_${dateStr}.json`, JSON.stringify(backupPayload, null, 2), 'application/json;charset=utf-8;');
-            showToast("Sauvegarde complète (.json) téléchargée.", "success");
-        }
-
-        function triggerImportJSON() {
-            const input = document.getElementById('import-json-input');
-            input.value = '';
-            input.click();
-        }
-
-        function handleImportJSON(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                try {
-                    const parsed = JSON.parse(e.target.result);
-                    const importedData = parsed.data ? parsed.data : parsed;
-
-                    if (!Array.isArray(importedData.items) || typeof importedData.boms !== 'object') {
-                        throw new Error("Format de fichier JSON invalide.");
-                    }
-
-                    openConfirmModal(
-                        "Importer une sauvegarde JSON",
-                        `Restaurer "${file.name}" (${importedData.items.length} articles) ? Cela remplacera vos données actuelles.`,
-                        () => {
-                            appState.items = importedData.items;
-                            appState.boms = importedData.boms || {};
-                            appState.bomVersions = importedData.bomVersions || {};
-                            appState.mrpPlan = importedData.mrpPlan || {};
-                            appState.movements = importedData.movements || [];
-                            appState.productionOrders = importedData.productionOrders || [];
-                            const firstPf = appState.items.find(i => i.category === 'PF' || i.category === 'SF');
-                            appState.selectedBomProduct = firstPf ? firstPf.code : null;
-                            saveState();
-                            renderAll();
-                            showToast("Sauvegarde JSON importée avec succès !", "success");
-                        }
-                    );
-                } catch (err) {
-                    showToast("Erreur lecture JSON : " + err.message, "error");
-                }
-            };
-            reader.readAsText(file);
-        }
-
-        function parseFrenchNumber(raw) {
-            if (raw === undefined || raw === null) return NaN;
-            let cleaned = String(raw).trim();
-            if (cleaned === '' || cleaned === '-') return NaN;
-            cleaned = cleaned.replace(/[\s\u00A0\u202F']/g, '').replace(',', '.');
-            const val = parseFloat(cleaned);
-            return isNaN(val) ? NaN : val;
-        }
-
-        function splitCsvLine(line, sep) {
-            const result = [];
-            let current = '';
-            let inQuotes = false;
-            for (let i = 0; i < line.length; i++) {
-                const ch = line[i];
-                if (ch === '"') {
-                    if (inQuotes && line[i + 1] === '"') {
-                        current += '"';
-                        i++;
-                    } else {
-                        inQuotes = !inQuotes;
-                    }
-                } else if (ch === sep && !inQuotes) {
-                    result.push(current.trim());
-                    current = '';
-                } else {
-                    current += ch;
-                }
-            }
-            result.push(current.trim());
-            return result;
-        }
-
-        function exportAllDataCSV() {
-            const rows = [
-                ["Code", "Designation", "Categorie", "Stock", "Unite", "PMP_DA"]
-            ];
-            appState.items.forEach(i => {
-                rows.push([
-                    i.code,
-                    i.name || '',
-                    i.category,
-                    Number(i.stock) || 0,
-                    i.unit || 'Unité',
-                    Number(i.price) || 0
-                ]);
-            });
-            downloadXLSX("optiprod_stocks_articles.xlsx", [{ name: "Articles_Stocks", rows }]);
-            showToast("Fichier Excel (.xlsx) téléchargé.", "success");
-        }
-
-        function triggerImportStocksCSV() {
-            const input = document.getElementById('import-csv-input');
-            input.value = '';
-            input.click();
-        }
-
-        function processImportedRows(rows) {
-            if (!Array.isArray(rows) || rows.length < 2) {
-                throw new Error("Le fichier ne contient aucune ligne de données (en-tête uniquement ou fichier vide).");
-            }
-
-            let updatedCount = 0;
-            let createdCount = 0;
-
-            for (let i = 1; i < rows.length; i++) {
-                const cols = rows[i];
-                if (!Array.isArray(cols) || cols.length < 4) continue;
-
-                const code = String(cols[0] ?? '').trim().toUpperCase();
-                if (!code) continue;
-
-                const name = String(cols[1] ?? code).trim() || code;
-                const rawCat = String(cols[2] ?? 'MP').trim().toUpperCase();
-                const category = ['MP', 'EMB', 'SF', 'PF', 'CH'].includes(rawCat) ? rawCat : 'MP';
-
-                const parsedStock = typeof cols[3] === 'number' ? cols[3] : parseFrenchNumber(cols[3]);
-                const stock = isNaN(parsedStock) ? 0 : Math.max(0, parsedStock);
-
-                const rawUnit = String(cols[4] ?? '').trim();
-                const unit = (rawUnit && rawUnit !== '-') ? rawUnit : 'Unité';
-
-                const parsedPrice = cols[5] !== undefined
-                    ? (typeof cols[5] === 'number' ? cols[5] : parseFrenchNumber(cols[5]))
-                    : NaN;
-
-                const existing = getItemByCode(code);
-                if (existing) {
-                    existing.name = name || existing.name;
-                    existing.category = category;
-                    existing.stock = stock;
-                    existing.unit = unit || existing.unit;
-                    if (!isNaN(parsedPrice)) existing.price = Math.max(0, parsedPrice);
-                    updatedCount++;
-                } else {
-                    appState.items.push({
-                        code,
-                        name,
-                        category,
-                        stock,
-                        unit,
-                        price: isNaN(parsedPrice) ? 0 : Math.max(0, parsedPrice)
-                    });
-                    if (category === 'PF' || category === 'SF') {
-                        appState.boms[code] = [];
-                        appState.bomVersions[code] = 'V1.0';
-                    }
-                    if (category === 'PF') appState.mrpPlan[code] = 0;
-                    createdCount++;
-                }
-            }
-
-            if (updatedCount === 0 && createdCount === 0) {
-                throw new Error("Aucune ligne valide trouvée.");
-            }
-
-            saveState();
-            renderAll();
-            showToast(`Import Excel terminé : ${updatedCount} mis à jour, ${createdCount} ajouté(s).`, "success");
-        }
-
-        function handleImportStocksCSV(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-
-            if (file.size === 0) {
-                showToast("Le fichier sélectionné est vide (0 octet). Vérifiez son contenu dans Excel avant de l'importer.", "error");
-                return;
-            }
-
-            const isExcel = /\.(xlsx|xls)$/i.test(file.name);
-            const reader = new FileReader();
-
-            reader.onload = function(e) {
-                try {
-                    if (isExcel) {
-                        if (typeof XLSX === 'undefined') {
-                            throw new Error("Bibliothèque Excel (.xlsx) non chargée.");
-                        }
-                        const data = new Uint8Array(e.target.result);
-                        const workbook = XLSX.read(data, { type: 'array' });
-                        const firstSheetName = workbook.SheetNames[0];
-                        if (!firstSheetName) throw new Error("Aucune feuille trouvée dans le classeur Excel.");
-                        const sheet = workbook.Sheets[firstSheetName];
-                        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-                        processImportedRows(rows);
-                    } else {
-                        const text = String(e.target.result || '').replace(/^\uFEFF/, '').replace(/\u0000/g, '');
-                        const lines = text.split(/\r\n|\r|\n/).filter(l => l.trim().length > 0);
-                        if (lines.length < 2) {
-                            throw new Error("Le fichier ne contient aucune ligne de données.");
-                        }
-                        const sep = lines[0].includes(';') ? ';' : (lines[0].includes('\t') ? '\t' : ',');
-                        const rows = lines.map(line => splitCsvLine(line, sep));
-                        processImportedRows(rows);
-                    }
-                } catch (err) {
-                    showToast("Erreur import Excel : " + err.message, "error");
-                }
-            };
-
-            if (isExcel) {
-                reader.readAsArrayBuffer(file);
-            } else {
-                reader.readAsText(file, 'UTF-8');
-            }
-        }
-
-        function exportMrpCSV() {
-            const useSfStock = document.getElementById('mrp-use-sf-stock').checked;
-            const { rawRequirements } = explodeRequirements(appState.mrpPlan, useSfStock);
-            const rows = [
-                ["Code", "Designation", "Categorie", "Besoin_Total", "Stock_Actuel", "Solde", "Unite", "Statut"]
-            ];
-            Object.entries(rawRequirements).forEach(([code, needed]) => {
-                const item = getItemByCode(code);
-                if (!item) return;
-                const diff = item.stock - needed;
-                const statut = item.category === 'CH' ? "CHARGE" : (diff < -1e-6 ? "MANQUANT" : "OK");
-                rows.push([
-                    item.code,
-                    item.name,
-                    item.category,
-                    Number(needed.toFixed(4)),
-                    Number(item.stock) || 0,
-                    Number(diff.toFixed(4)),
-                    item.unit,
-                    statut
-                ]);
-            });
-            downloadXLSX("optiprod_calcul_besoins_mrp.xlsx", [{ name: "Besoins_MRP", rows }]);
-            showToast("Fichier Excel (.xlsx) du calcul MRP téléchargé.", "success");
-        }
-
-        function exportOptimalCSV() {
-            if (!appState.lastOptimalCombo) return;
-            const useSfStock = document.getElementById('opt-use-sf-stock').checked;
-            const { rawRequirements } = explodeRequirements(appState.lastOptimalCombo, useSfStock);
-
-            const planRows = [
-                ["Code_Produit", "Designation", "Quantite_Optimale", "Unite", "Prix_DA", "Valeur_Totale_DA"]
-            ];
-            Object.entries(appState.lastOptimalCombo).forEach(([code, qty]) => {
-                const item = getItemByCode(code);
-                if (!item) return;
-                const safeQty = Number(qty) || 0;
-                const price = Number(item.price) || 0;
-                planRows.push([
-                    code,
-                    item.name,
-                    safeQty,
-                    item.unit,
-                    price,
-                    Number((safeQty * price).toFixed(2))
-                ]);
-            });
-
-            const consoRows = [
-                ["Code_Composant", "Designation", "Categorie", "Quantite_Utilisee", "Stock_Initial", "Stock_Restant", "Taux_Utilisation_%"]
-            ];
-            Object.entries(rawRequirements).forEach(([code, used]) => {
-                const item = getItemByCode(code);
-                if (!item || item.category === 'CH') return;
-                const pct = item.stock > 0 ? Number(((used / item.stock) * 100).toFixed(1)) : 0;
-                consoRows.push([
-                    item.code,
-                    item.name,
-                    item.category,
-                    Number(used.toFixed(4)),
-                    Number(item.stock) || 0,
-                    Number((item.stock - used).toFixed(4)),
-                    pct
-                ]);
-            });
-
-            downloadXLSX("optiprod_plan_optimal.xlsx", [
-                { name: "Plan_Optimal", rows: planRows },
-                { name: "Consommation_Stocks", rows: consoRows }
-            ]);
-            showToast("Fichier Excel (.xlsx) du plan optimal téléchargé.", "success");
-        }
-
-        window.addEventListener('DOMContentLoaded', initApp);
+        document.addEventListener('DOMContentLoaded', initApp);
     </script>
 </body>
 </html>
