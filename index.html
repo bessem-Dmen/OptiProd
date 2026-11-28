@@ -215,7 +215,22 @@
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 <div class="lg:col-span-4 space-y-4">
                     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-                        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center justify-between">
+                        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                            <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Import / Export Recettes</span>
+                            <div class="flex items-center gap-1.5">
+                                <button onclick="exportBomXLSX()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-slate-300/80 transition flex items-center gap-1" title="Exporter toutes les nomenclatures en Excel (.xlsx)">
+                                    <i class="fa-solid fa-file-excel text-emerald-600"></i>
+                                    <span>Export</span>
+                                </button>
+                                <button onclick="triggerImportBomXLSX()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-sm transition flex items-center gap-1" title="Importer les nomenclatures depuis un fichier Excel (.xlsx)">
+                                    <i class="fa-solid fa-file-import"></i>
+                                    <span>Import (.xlsx)</span>
+                                </button>
+                                <input type="file" id="import-bom-input" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" class="hidden" onchange="handleImportBomXLSX(event)">
+                            </div>
+                        </div>
+
+                        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mt-4 mb-3 flex items-center justify-between">
                             <span>Produits Finis (PF)</span>
                             <span class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-[11px]" id="count-pf-bom">0</span>
                         </h3>
@@ -1386,6 +1401,219 @@
             saveState();
             renderBomTab();
             showToast("Ligne supprimée de la nomenclature.", "info");
+        }
+
+        function exportBomXLSX() {
+            const rows = [
+                ["Produit_Parent", "Composant", "Quantite_Unitaire", "Perte_Pct", "Version"]
+            ];
+            Object.entries(appState.boms || {}).forEach(([parentCode, lines]) => {
+                if (!Array.isArray(lines)) return;
+                const version = appState.bomVersions?.[parentCode] || 'V1.0';
+                lines.forEach(line => {
+                    rows.push([
+                        parentCode,
+                        line.itemCode,
+                        Number(line.qty) || 0,
+                        Number(line.scrapRate) || 0,
+                        version
+                    ]);
+                });
+            });
+            downloadXLSX("optiprod_nomenclatures_bom.xlsx", [{ name: "Nomenclatures", rows }]);
+            showToast("Fichier Excel (.xlsx) des nomenclatures téléchargé.", "success");
+        }
+
+        function triggerImportBomXLSX() {
+            const input = document.getElementById('import-bom-input');
+            if (!input) return;
+            input.value = '';
+            input.click();
+        }
+
+        function detectBomColumnMap(headers) {
+            const norm = headers.map(h => String(h ?? '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+            const findIdx = (candidates, fallback) => {
+                for (const cand of candidates) {
+                    const idx = norm.findIndex(col => col === cand || col.includes(cand));
+                    if (idx !== -1) return idx;
+                }
+                return fallback;
+            };
+            return {
+                parentIdx: findIdx(["produit_parent", "parent", "produit", "pf", "sf", "article_parent", "fini", "code_parent"], 0),
+                compIdx: findIdx(["composant", "matiere", "ingredient", "component", "code_composant", "mp", "article"], 1),
+                qtyIdx: findIdx(["quantite", "quantite_unitaire", "qte", "qty", "besoin", "consommation"], 2),
+                scrapIdx: findIdx(["perte", "perte_pct", "scrap", "scrap_rate", "rebut", "chute"], 3),
+                verIdx: findIdx(["version", "bom_version", "rev", "indice"], 4)
+            };
+        }
+
+        function ensureBomParentItem(code) {
+            let item = getItemByCode(code);
+            if (!item) {
+                const cat = /^SF/i.test(code) ? 'SF' : 'PF';
+                item = {
+                    code,
+                    name: code,
+                    category: cat,
+                    stock: 0,
+                    unit: 'Unité',
+                    price: 0
+                };
+                appState.items.push(item);
+                if (cat === 'PF' && appState.mrpPlan[code] === undefined) {
+                    appState.mrpPlan[code] = 0;
+                }
+            }
+            return item;
+        }
+
+        function ensureBomComponentItem(code) {
+            let item = getItemByCode(code);
+            if (!item) {
+                let cat = 'MP';
+                let unit = 'KG';
+                if (/^SF/i.test(code)) {
+                    cat = 'SF';
+                    unit = 'Unité';
+                } else if (/^(EMB|E\d+|PACK|CARTON)/i.test(code)) {
+                    cat = 'EMB';
+                    unit = 'Unité';
+                } else if (/^(CH|C-F|CHARGE)/i.test(code)) {
+                    cat = 'CH';
+                    unit = 'Unité';
+                }
+                item = {
+                    code,
+                    name: code,
+                    category: cat,
+                    stock: 0,
+                    unit,
+                    price: 0
+                };
+                appState.items.push(item);
+            }
+            return item;
+        }
+
+        function processImportedBomRows(rows) {
+            if (!Array.isArray(rows) || rows.length < 2) {
+                throw new Error("Le fichier de nomenclatures ne contient aucune ligne de données.");
+            }
+
+            const colMap = detectBomColumnMap(rows[0]);
+            const groupedBoms = {};
+            const groupedVersions = {};
+            let importedLinesCount = 0;
+
+            for (let i = 1; i < rows.length; i++) {
+                const cols = rows[i];
+                if (!Array.isArray(cols) || cols.length < 2) continue;
+
+                const parentCode = String(cols[colMap.parentIdx] ?? '').trim().toUpperCase();
+                const compCode = String(cols[colMap.compIdx] ?? '').trim().toUpperCase();
+                if (!parentCode || !compCode || parentCode === compCode) continue;
+
+                const rawQty = cols[colMap.qtyIdx];
+                const parsedQty = typeof rawQty === 'number' ? rawQty : parseFrenchNumber(rawQty);
+                if (isNaN(parsedQty) || parsedQty <= 0) continue;
+
+                const rawScrap = cols[colMap.scrapIdx];
+                const parsedScrap = (rawScrap !== undefined && rawScrap !== '')
+                    ? (typeof rawScrap === 'number' ? rawScrap : parseFrenchNumber(rawScrap))
+                    : 0;
+                const scrapRate = isNaN(parsedScrap) || parsedScrap < 0 ? 0 : parsedScrap;
+
+                const verRaw = String(cols[colMap.verIdx] ?? '').trim();
+                if (verRaw) groupedVersions[parentCode] = verRaw;
+
+                ensureBomParentItem(parentCode);
+                ensureBomComponentItem(compCode);
+
+                if (!groupedBoms[parentCode]) groupedBoms[parentCode] = [];
+                const existingLine = groupedBoms[parentCode].find(l => l.itemCode === compCode);
+                if (existingLine) {
+                    existingLine.qty = Number((existingLine.qty + parsedQty).toFixed(6));
+                    existingLine.scrapRate = scrapRate;
+                } else {
+                    groupedBoms[parentCode].push({
+                        itemCode: compCode,
+                        qty: parsedQty,
+                        scrapRate
+                    });
+                }
+                importedLinesCount++;
+            }
+
+            if (importedLinesCount === 0) {
+                throw new Error("Aucune ligne de nomenclature valide trouvée dans le fichier.");
+            }
+
+            Object.entries(groupedBoms).forEach(([pCode, lines]) => {
+                appState.boms[pCode] = lines;
+                if (groupedVersions[pCode]) {
+                    appState.bomVersions[pCode] = groupedVersions[pCode];
+                } else if (!appState.bomVersions[pCode]) {
+                    appState.bomVersions[pCode] = 'V1.0';
+                }
+            });
+
+            const importedParents = Object.keys(groupedBoms);
+            if (!appState.selectedBomProduct || !appState.boms[appState.selectedBomProduct]) {
+                appState.selectedBomProduct = importedParents[0] || null;
+            }
+
+            saveState();
+            renderAll();
+            showToast(`Import nomenclatures réussi : ${importedLinesCount} ligne(s) sur ${importedParents.length} produit(s).`, "success");
+        }
+
+        function handleImportBomXLSX(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (file.size === 0) {
+                showToast("Le fichier sélectionné est vide (0 octet).", "error");
+                return;
+            }
+
+            const isExcel = /\.(xlsx|xls)$/i.test(file.name);
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                try {
+                    if (isExcel) {
+                        if (typeof XLSX === 'undefined') {
+                            throw new Error("Bibliothèque Excel (.xlsx) non chargée.");
+                        }
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheetName = workbook.SheetNames[0];
+                        if (!firstSheetName) throw new Error("Aucune feuille trouvée dans le classeur Excel.");
+                        const sheet = workbook.Sheets[firstSheetName];
+                        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+                        processImportedBomRows(rows);
+                    } else {
+                        const text = String(e.target.result || '').replace(/^\uFEFF/, '').replace(/\u0000/g, '');
+                        const lines = text.split(/\r\n|\r|\n/).filter(l => l.trim().length > 0);
+                        if (lines.length < 2) {
+                            throw new Error("Le fichier ne contient aucune ligne de données.");
+                        }
+                        const sep = lines[0].includes(';') ? ';' : (lines[0].includes('\t') ? '\t' : ',');
+                        const rows = lines.map(line => splitCsvLine(line, sep));
+                        processImportedBomRows(rows);
+                    }
+                } catch (err) {
+                    showToast("Erreur import nomenclatures : " + err.message, "error");
+                }
+            };
+
+            if (isExcel) {
+                reader.readAsArrayBuffer(file);
+            } else {
+                reader.readAsText(file, 'UTF-8');
+            }
         }
 
         // =========================================================================
