@@ -576,9 +576,23 @@
             if (saved) {
                 try {
                     const parsed = JSON.parse(saved);
-                    appState.items = parsed.items || JSON.parse(JSON.stringify(DEFAULT_DATA.items));
-                    appState.boms = parsed.boms || JSON.parse(JSON.stringify(DEFAULT_DATA.boms));
-                    appState.mrpPlan = parsed.mrpPlan || JSON.parse(JSON.stringify(DEFAULT_DATA.mrpPlan));
+                    appState.items = Array.isArray(parsed.items) ? parsed.items : JSON.parse(JSON.stringify(DEFAULT_DATA.items));
+                    appState.boms = (parsed.boms && typeof parsed.boms === 'object') ? parsed.boms : JSON.parse(JSON.stringify(DEFAULT_DATA.boms));
+                    appState.mrpPlan = (parsed.mrpPlan && typeof parsed.mrpPlan === 'object') ? parsed.mrpPlan : JSON.parse(JSON.stringify(DEFAULT_DATA.mrpPlan));
+
+                    // Nettoyer les références vers d'anciens articles inexistants pour éviter tout bug
+                    const validCodes = new Set(appState.items.map(i => i.code));
+                    Object.keys(appState.mrpPlan).forEach(code => {
+                        if (!validCodes.has(code)) delete appState.mrpPlan[code];
+                    });
+                    Object.keys(appState.boms).forEach(parentCode => {
+                        if (!validCodes.has(parentCode)) {
+                            delete appState.boms[parentCode];
+                        } else if (Array.isArray(appState.boms[parentCode])) {
+                            appState.boms[parentCode] = appState.boms[parentCode].filter(ing => validCodes.has(ing.itemCode));
+                        }
+                    });
+                    saveState();
                 } catch (e) {
                     resetToDefault(false);
                 }
@@ -588,7 +602,7 @@
 
             // Sélectionner le premier PF disponible pour l'éditeur BOM
             const firstPf = appState.items.find(i => i.category === 'PF');
-            if (firstPf) appState.selectedBomProduct = firstPf.code;
+            appState.selectedBomProduct = firstPf ? firstPf.code : null;
 
             renderAll();
         }
@@ -962,13 +976,18 @@
                     appState.items = appState.items.filter(i => i.code !== code);
                     delete appState.boms[code];
                     delete appState.mrpPlan[code];
+                    if (appState.lastOptimalCombo) {
+                        delete appState.lastOptimalCombo[code];
+                    }
                     // Nettoyer des recettes
                     Object.keys(appState.boms).forEach(parentCode => {
-                        appState.boms[parentCode] = appState.boms[parentCode].filter(line => line.itemCode !== code);
+                        if (Array.isArray(appState.boms[parentCode])) {
+                            appState.boms[parentCode] = appState.boms[parentCode].filter(ing => ing.itemCode !== code);
+                        }
                     });
                     if (appState.selectedBomProduct === code) {
-                        const next = appState.items.find(i => i.category === 'PF' || i.category === 'SF');
-                        appState.selectedBomProduct = next ? next.code : null;
+                        const firstPf = appState.items.find(i => i.category === 'PF' || i.category === 'SF');
+                        appState.selectedBomProduct = firstPf ? firstPf.code : null;
                     }
                     saveState();
                     renderAll();
@@ -978,7 +997,7 @@
         }
 
         // =========================================================================
-        // 5. ONGLET 2 : NOMENCLATURES MULTI-NIVEAUX (BOM)
+        // 5. ONGLET 2 : GESTION DES NOMENCLATURES (BOM MULTI-NIVEAUX)
         // =========================================================================
         function renderBomSidebar() {
             const pfs = appState.items.filter(i => i.category === 'PF');
@@ -989,23 +1008,21 @@
 
             const renderBtn = (item) => {
                 const isSelected = appState.selectedBomProduct === item.code;
-                const bomLen = (appState.boms[item.code] || []).length;
+                const ingCount = (appState.boms[item.code] || []).length;
                 return `
                     <button onclick="selectBomProduct('${item.code}')" 
-                        class="w-full text-left px-3.5 py-2.5 rounded-xl border transition flex items-center justify-between ${isSelected ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200/80'}">
+                        class="w-full text-left px-3 py-2.5 rounded-lg border transition flex items-center justify-between ${isSelected ? 'bg-indigo-50 border-indigo-300 text-indigo-900 font-semibold shadow-2xs' : 'bg-white border-slate-200/80 text-slate-700 hover:bg-slate-50'}">
                         <div class="truncate pr-2">
-                            <div class="font-bold text-sm">${item.code}</div>
-                            <div class="text-xs truncate ${isSelected ? 'text-indigo-100' : 'text-slate-500'}">${item.name}</div>
+                            <span class="text-xs font-bold mr-1.5 ${isSelected ? 'text-indigo-600' : 'text-slate-500'}">${item.code}</span>
+                            <span class="text-sm">${item.name}</span>
                         </div>
-                        <span class="text-xs px-2 py-0.5 rounded-full font-semibold ${isSelected ? 'bg-indigo-500 text-white' : 'bg-white text-slate-600 border border-slate-200'}">
-                            ${bomLen} comp.
-                        </span>
+                        <span class="text-[11px] px-2 py-0.5 rounded-full ${ingCount > 0 ? 'bg-slate-200/80 text-slate-700' : 'bg-rose-100 text-rose-700'}">${ingCount} ing.</span>
                     </button>
                 `;
             };
 
-            document.getElementById('bom-pf-list').innerHTML = pfs.length ? pfs.map(renderBtn).join('') : '<p class="text-xs text-slate-400 italic">Aucun produit fini</p>';
-            document.getElementById('bom-sf-list').innerHTML = sfs.length ? sfs.map(renderBtn).join('') : '<p class="text-xs text-slate-400 italic">Aucun semi-fini</p>';
+            document.getElementById('bom-pf-list').innerHTML = pfs.length ? pfs.map(renderBtn).join('') : '<p class="text-xs text-slate-400">Aucun produit fini.</p>';
+            document.getElementById('bom-sf-list').innerHTML = sfs.length ? sfs.map(renderBtn).join('') : '<p class="text-xs text-slate-400">Aucun semi-fini.</p>';
         }
 
         function selectBomProduct(code) {
@@ -1024,129 +1041,110 @@
             }
 
             const recipe = appState.boms[product.code] || [];
-
-            // Filtrer les composants éligibles pour éviter les références circulaires
-            const eligibleComponents = appState.items.filter(item => {
-                if (item.code === product.code) return false;
-                if (product.category === 'SF') {
-                    // Un Semi-Fini est composé de MP ou EMB (évite les boucles infinies SF->SF)
-                    return item.category === 'MP' || item.category === 'EMB';
-                }
-                if (product.category === 'PF') {
-                    // Un Produit Fini peut consommer MP, EMB ou SF
-                    return item.category === 'MP' || item.category === 'EMB' || item.category === 'SF';
-                }
-                return false;
+            // Éviter les références circulaires : un produit ne peut pas se contenir lui-même (ni un PF contenir un PF)
+            const availableComponents = appState.items.filter(i => {
+                if (i.code === product.code) return false;
+                if (product.category === 'SF' && i.category === 'PF') return false;
+                if (product.category === 'PF' && i.category === 'PF') return false;
+                return true;
             });
 
-            // Calculer le coût matière unitaire de la recette
-            let unitCost = 0;
-            recipe.forEach(line => {
-                const comp = getItemByCode(line.itemCode);
-                if (comp) unitCost += line.qty * (comp.price || 0);
-            });
-
-            // Calculer la consommation consolidée (éclatée jusqu'aux matières de base pour 1 unité)
-            const { rawRequirements: unitExploded } = explodeRequirements({ [product.code]: 1 }, false);
-            const consolidatedEntries = Object.entries(unitExploded);
+            // Calculer la consommation consolidée multi-niveaux pour 1 unité de ce produit
+            const exploded = explodeSingleUnit(product.code, 1, false);
 
             container.innerHTML = `
-                <div class="flex flex-wrap items-start justify-between gap-4 pb-5 border-b border-slate-200">
+                <div class="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-200">
                     <div>
-                        <div class="flex items-center gap-2.5">
-                            <h2 class="text-xl font-bold text-slate-800">${product.code} — ${product.name}</h2>
+                        <div class="flex items-center gap-2">
+                            <span class="text-lg font-bold text-slate-800">${product.code} - ${product.name}</span>
                             ${getCategoryBadge(product.category)}
                         </div>
-                        <p class="text-xs text-slate-500 mt-1">Composition requise pour produire <strong>1 ${product.unit}</strong> de ${product.code}</p>
-                    </div>
-                    <div class="bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-200 text-right">
-                        <span class="text-[11px] uppercase font-semibold text-slate-400 block">Coût Matière Direct</span>
-                        <span class="text-base font-bold text-slate-800">${formatNum(unitCost, 3)} € <span class="text-xs font-normal text-slate-500">/ ${product.unit}</span></span>
+                        <p class="text-xs text-slate-500 mt-1">Recette unitaire pour fabriquer <strong>1 ${product.unit}</strong> de ${product.code}</p>
                     </div>
                 </div>
 
                 <!-- Formulaire d'ajout d'ingrédient -->
-                <form onsubmit="addBomIngredient(event)" class="my-5 bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
-                    <div class="flex-grow">
-                        <label class="block text-xs font-semibold text-slate-700 mb-1">Composant (MP, EMB${product.category === 'PF' ? ', SF' : ''})</label>
+                <form onsubmit="addBomIngredient(event)" class="mt-4 bg-slate-50 p-4 rounded-xl border border-slate-200/80 flex flex-col sm:flex-row items-end gap-3">
+                    <div class="flex-grow w-full">
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Composant à consommer (MP, EMB ou SF)</label>
                         <select id="bom-add-component" required class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
-                            ${eligibleComponents.map(c => `<option value="${c.code}">[${c.category}] ${c.code} - ${c.name} (${c.unit})</option>`).join('')}
+                            ${availableComponents.map(c => `<option value="${c.code}">[${c.category}] ${c.code} - ${c.name} (${c.unit})</option>`).join('')}
                         </select>
                     </div>
                     <div class="w-full sm:w-36">
                         <label class="block text-xs font-semibold text-slate-700 mb-1">Quantité / unité</label>
-                        <input type="number" id="bom-add-qty" step="any" min="0.0001" required placeholder="ex: 0.5" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <input type="number" id="bom-add-qty" step="any" min="0.000001" required placeholder="ex: 0.5" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
                     </div>
-                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition flex items-center justify-center gap-2 whitespace-nowrap">
+                    <button type="submit" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg shadow-xs transition flex items-center justify-center gap-1.5 whitespace-nowrap">
                         <i class="fa-solid fa-plus"></i>
                         <span>Ajouter</span>
                     </button>
                 </form>
 
-                <!-- Tableau des ingrédients de la recette -->
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse text-sm">
-                        <thead>
-                            <tr class="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase">
-                                <th class="py-2.5 px-3">Code</th>
-                                <th class="py-2.5 px-3">Composant</th>
-                                <th class="py-2.5 px-3">Type</th>
-                                <th class="py-2.5 px-3 text-right">Qté pour 1 ${product.unit}</th>
-                                <th class="py-2.5 px-3">Unité</th>
-                                <th class="py-2.5 px-3 text-center">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-100">
-                            ${recipe.length === 0 ? `
-                                <tr><td colspan="6" class="py-8 text-center text-slate-400">Aucun composant dans cette recette. Ajoutez des matières ci-dessus.</td></tr>
-                            ` : recipe.map((line, idx) => {
-                                const comp = getItemByCode(line.itemCode);
-                                if (!comp) return '';
-                                // Afficher un aperçu si c'est un Semi-Fini
-                                let subInfo = '';
-                                if (comp.category === 'SF' && appState.boms[comp.code]) {
-                                    const subStr = appState.boms[comp.code].map(s => `${formatNum(s.qty * line.qty, 3)} ${s.itemCode}`).join(' + ');
-                                    subInfo = `<div class="text-[11px] text-sky-600 mt-0.5"><i class="fa-solid fa-turn-up fa-rotate-90 mr-1"></i>Contient : ${subStr || 'recette vide'}</div>`;
-                                }
-                                return `
-                                    <tr class="hover:bg-slate-50">
-                                        <td class="py-3 px-3 font-bold text-slate-800">${comp.code}</td>
-                                        <td class="py-3 px-3">
-                                            <div class="font-medium text-slate-700">${comp.name}</div>
-                                            ${subInfo}
-                                        </td>
-                                        <td class="py-3 px-3">${getCategoryBadge(comp.category)}</td>
-                                        <td class="py-3 px-3 text-right">
-                                            <input type="number" step="any" min="0.0001" value="${line.qty}"
-                                                onchange="updateBomLineQty('${product.code}', ${idx}, this.value)"
-                                                class="w-24 text-right font-semibold text-indigo-700 bg-indigo-50/50 border border-indigo-200 rounded px-2 py-1 focus:bg-white focus:border-indigo-500 outline-none">
-                                        </td>
-                                        <td class="py-3 px-3 text-slate-500 text-xs font-medium">${comp.unit}</td>
-                                        <td class="py-3 px-3 text-center">
-                                            <button onclick="removeBomLine('${product.code}', ${idx})" class="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition" title="Retirer de la recette">
-                                                <i class="fa-solid fa-trash-can"></i>
-                                            </button>
-                                        </td>
+                <!-- Liste des composants directs -->
+                <div class="mt-5">
+                    <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Composants directs de la recette (${recipe.length})</h4>
+                    ${recipe.length === 0 ? `
+                        <div class="p-6 text-center bg-slate-50 rounded-xl border border-dashed border-slate-300 text-slate-400 text-sm">
+                            Aucun composant défini dans cette recette. Ajoutez des matières premières, emballages ou semi-finis ci-dessus.
+                        </div>
+                    ` : `
+                        <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                            <table class="w-full text-left text-sm">
+                                <thead class="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase">
+                                    <tr>
+                                        <th class="py-2.5 px-3">Code</th>
+                                        <th class="py-2.5 px-3">Désignation</th>
+                                        <th class="py-2.5 px-3">Catégorie</th>
+                                        <th class="py-2.5 px-3 text-right">Qté pour 1 ${product.unit}</th>
+                                        <th class="py-2.5 px-3">Unité</th>
+                                        <th class="py-2.5 px-3 text-center">Retirer</th>
                                     </tr>
-                                `;
-                            }).join('')}
-                        </tbody>
-                    </table>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    ${recipe.map((ing, idx) => {
+                                        const comp = getItemByCode(ing.itemCode);
+                                        if (!comp) return '';
+                                        return `
+                                            <tr class="hover:bg-slate-50">
+                                                <td class="py-2.5 px-3 font-bold text-slate-800">${comp.code}</td>
+                                                <td class="py-2.5 px-3 text-slate-700">${comp.name}</td>
+                                                <td class="py-2.5 px-3">${getCategoryBadge(comp.category)}</td>
+                                                <td class="py-2.5 px-3 text-right">
+                                                    <input type="number" step="any" min="0.000001" value="${ing.qty}"
+                                                        onchange="updateBomIngredientQty('${product.code}', ${idx}, this.value)"
+                                                        class="w-24 text-right font-semibold border border-slate-200 rounded px-2 py-1 focus:border-indigo-500 outline-none">
+                                                </td>
+                                                <td class="py-2.5 px-3 text-xs text-slate-500">${comp.unit}</td>
+                                                <td class="py-2.5 px-3 text-center">
+                                                    <button onclick="removeBomIngredient('${product.code}', ${idx})" class="text-slate-400 hover:text-rose-600 p-1 transition">
+                                                        <i class="fa-solid fa-trash-can"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
                 </div>
 
-                <!-- Synthèse de la consommation consolidée (éclatée) pour 1 unité -->
-                ${product.category === 'PF' && consolidatedEntries.length > 0 ? `
+                <!-- Aperçu consolidé multi-niveaux (si contient des SF) -->
+                ${Object.keys(exploded).length > 0 ? `
                     <div class="mt-6 pt-4 border-t border-slate-200">
-                        <h4 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2.5 flex items-center gap-1.5">
-                            <i class="fa-solid fa-diagram-project text-emerald-600"></i>
-                            <span>Consommation Consolidée Totale (sans stock SF) pour 1 ${product.unit} de ${product.code}</span>
+                        <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
+                            <i class="fa-solid fa-sitemap text-sky-500"></i>
+                            <span>Consommation totale éclatée (MP + Emballages) pour 1 ${product.unit} de ${product.code}</span>
                         </h4>
                         <div class="flex flex-wrap gap-2">
-                            ${consolidatedEntries.map(([code, qty]) => {
-                                const cItem = getItemByCode(code);
-                                return `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200/80 text-xs text-emerald-900">
-                                    <strong class="font-bold">${code}</strong>: ${formatNum(qty, 4)} ${cItem ? cItem.unit : ''}
-                                </span>`;
+                            ${Object.entries(exploded).map(([code, qty]) => {
+                                const item = getItemByCode(code);
+                                return item ? `
+                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-medium border border-slate-200">
+                                        <strong class="text-slate-900">${code}:</strong> ${formatNum(qty, 4)} ${item.unit}
+                                    </span>
+                                ` : '';
                             }).join('')}
                         </div>
                     </div>
@@ -1163,63 +1161,88 @@
             if (!prodCode || !compCode || isNaN(qty) || qty <= 0) return;
 
             if (!appState.boms[prodCode]) appState.boms[prodCode] = [];
-
-            // Si le composant existe déjà dans la recette, on cumule la quantité (ex: si l'utilisateur ajoute M1 deux fois)
-            const existing = appState.boms[prodCode].find(l => l.itemCode === compCode);
+            const existing = appState.boms[prodCode].find(i => i.itemCode === compCode);
             if (existing) {
-                existing.qty = Number((existing.qty + qty).toFixed(6));
+                existing.qty += qty;
                 showToast(`Quantité de ${compCode} cumulée dans la recette de ${prodCode}.`, "info");
             } else {
                 appState.boms[prodCode].push({ itemCode: compCode, qty });
-                showToast(`${compCode} ajouté à la nomenclature de ${prodCode}.`, "success");
+                showToast(`${compCode} ajouté à la recette de ${prodCode}.`, "success");
             }
 
-            document.getElementById('bom-add-qty').value = '';
             saveState();
             renderBomSidebar();
             renderBomEditor();
         }
 
-        function updateBomLineQty(prodCode, idx, newQty) {
-            const val = parseFloat(newQty);
+        function updateBomIngredientQty(prodCode, idx, newVal) {
+            const val = parseFloat(newVal);
             if (isNaN(val) || val <= 0) {
                 showToast("La quantité doit être supérieure à 0.", "error");
                 renderBomEditor();
                 return;
             }
-            appState.boms[prodCode][idx].qty = val;
-            saveState();
-            renderBomEditor();
-            showToast("Recette mise à jour.", "success");
+            if (appState.boms[prodCode] && appState.boms[prodCode][idx]) {
+                appState.boms[prodCode][idx].qty = val;
+                saveState();
+                renderBomEditor();
+                showToast("Quantité mise à jour.", "success");
+            }
         }
 
-        function removeBomLine(prodCode, idx) {
-            appState.boms[prodCode].splice(idx, 1);
-            saveState();
-            renderBomSidebar();
-            renderBomEditor();
-            showToast("Composant retiré de la recette.", "info");
+        function removeBomIngredient(prodCode, idx) {
+            if (appState.boms[prodCode]) {
+                appState.boms[prodCode].splice(idx, 1);
+                saveState();
+                renderBomSidebar();
+                renderBomEditor();
+                showToast("Composant retiré de la recette.", "info");
+            }
         }
 
         // =========================================================================
-        // 6. MOTEUR D'ÉCLATEMENT MULTI-NIVEAUX (EXPLOSION DES BESOINS)
+        // 6. MOTEUR D'ÉCLATEMENT MULTI-NIVEAUX (MRP ENGINE)
         // =========================================================================
-        /**
-         * Calcule les besoins nets en matières premières (MP) et emballages (EMB)
-         * pour un dictionnaire de quantités de Produits Finis { P1: 500, P2: 100 ... }
-         */
-        function explodeRequirements(productionPlan, useExistingSfStock = true) {
-            const sfGrossDemand = {}; // Besoin brut en SF
-            const rawRequirements = {}; // Besoin total en MP et EMB
+        function explodeSingleUnit(productCode, multiplier = 1, visited = new Set()) {
+            const result = {};
+            if (visited.has(productCode)) return result; // Protection contre boucle infinie
+            const nextVisited = new Set(visited);
+            nextVisited.add(productCode);
 
-            // 1. Calculer les besoins directs des Produits Finis
+            const recipe = appState.boms[productCode] || [];
+            recipe.forEach(ing => {
+                const comp = getItemByCode(ing.itemCode);
+                if (!comp) return;
+                const totalNeeded = ing.qty * multiplier;
+
+                if (comp.category === 'SF') {
+                    // Éclater récursivement le semi-fini
+                    const sub = explodeSingleUnit(comp.code, totalNeeded, nextVisited);
+                    Object.entries(sub).forEach(([subCode, subQty]) => {
+                        result[subCode] = (result[subCode] || 0) + subQty;
+                    });
+                } else {
+                    result[comp.code] = (result[comp.code] || 0) + totalNeeded;
+                }
+            });
+
+            return result;
+        }
+
+        function explodeRequirements(productionPlan, useSfStock = true) {
+            const rawRequirements = {}; // Consommation finale MP et EMB
+            const sfGrossDemand = {};   // Demande brute totale en SF
+
+            // 1. Parcourir les Produits Finis demandés
             Object.entries(productionPlan).forEach(([pfCode, pfQty]) => {
-                if (!pfQty || pfQty <= 0) return;
-                const bom = appState.boms[pfCode] || [];
-                bom.forEach(line => {
-                    const comp = getItemByCode(line.itemCode);
+                const qty = Number(pfQty) || 0;
+                if (qty <= 0) return;
+                const recipe = appState.boms[pfCode] || [];
+
+                recipe.forEach(ing => {
+                    const comp = getItemByCode(ing.itemCode);
                     if (!comp) return;
-                    const needed = line.qty * pfQty;
+                    const needed = ing.qty * qty;
 
                     if (comp.category === 'SF') {
                         sfGrossDemand[comp.code] = (sfGrossDemand[comp.code] || 0) + needed;
@@ -1229,31 +1252,47 @@
                 });
             });
 
-            // 2. Traiter les Semi-Finis (déduire le stock SF disponible si option cochée, puis éclater en MP/EMB)
+            // 2. Traiter les Semi-Finis (déduction éventuelle du stock de SF existant)
             const sfDetails = [];
-            Object.entries(sfGrossDemand).forEach(([sfCode, grossQty]) => {
+            const sfQueue = Object.keys(sfGrossDemand);
+            const processedSf = new Set();
+
+            while (sfQueue.length > 0) {
+                const sfCode = sfQueue.shift();
+                if (processedSf.has(sfCode)) continue;
+                processedSf.add(sfCode);
+
                 const sfItem = getItemByCode(sfCode);
-                const availSfStock = useExistingSfStock && sfItem ? sfItem.stock : 0;
-                const netToProduce = Math.max(0, grossQty - availSfStock);
+                if (!sfItem) continue;
+
+                const gross = sfGrossDemand[sfCode] || 0;
+                const stockAvail = useSfStock ? (sfItem.stock || 0) : 0;
+                const netToProduce = Math.max(0, gross - stockAvail);
 
                 sfDetails.push({
-                    code: sfCode,
-                    name: sfItem ? sfItem.name : sfCode,
-                    unit: sfItem ? sfItem.unit : 'unité',
-                    grossDemand: grossQty,
-                    stockAvailable: sfItem ? sfItem.stock : 0,
-                    netToProduce: netToProduce
+                    code: sfItem.code,
+                    name: sfItem.name,
+                    unit: sfItem.unit,
+                    grossDemand: gross,
+                    stockAvailable: sfItem.stock || 0,
+                    netToProduce
                 });
 
                 if (netToProduce > 0) {
-                    const sfBom = appState.boms[sfCode] || [];
-                    sfBom.forEach(line => {
-                        const comp = getItemByCode(line.itemCode);
+                    const sfRecipe = appState.boms[sfCode] || [];
+                    sfRecipe.forEach(ing => {
+                        const comp = getItemByCode(ing.itemCode);
                         if (!comp) return;
-                        rawRequirements[comp.code] = (rawRequirements[comp.code] || 0) + (line.qty * netToProduce);
+                        const subNeeded = ing.qty * netToProduce;
+                        if (comp.category === 'SF') {
+                            sfGrossDemand[comp.code] = (sfGrossDemand[comp.code] || 0) + subNeeded;
+                            sfQueue.push(comp.code);
+                        } else {
+                            rawRequirements[comp.code] = (rawRequirements[comp.code] || 0) + subNeeded;
+                        }
                     });
                 }
-            });
+            }
 
             return { rawRequirements, sfDetails };
         }
@@ -1266,32 +1305,35 @@
             const pfs = appState.items.filter(i => i.category === 'PF');
 
             if (pfs.length === 0) {
-                container.innerHTML = `<p class="text-sm text-slate-400">Aucun Produit Fini défini dans l'onglet 1.</p>`;
+                container.innerHTML = `<p class="text-xs text-slate-400">Aucun Produit Fini disponible. Créez-en un dans l'onglet 1.</p>`;
                 return;
             }
 
             container.innerHTML = pfs.map(pf => {
-                const plannedQty = appState.mrpPlan[pf.code] !== undefined ? appState.mrpPlan[pf.code] : 0;
+                const val = appState.mrpPlan[pf.code] !== undefined ? appState.mrpPlan[pf.code] : 0;
                 return `
-                    <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200/80">
-                        <div class="pr-3">
-                            <div class="font-bold text-sm text-slate-800">${pf.code} — ${pf.name}</div>
-                            <div class="text-xs text-slate-500">Stock PF actuel : <span class="font-semibold text-slate-700">${formatNum(pf.stock)} ${pf.unit}</span></div>
+                    <div class="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-2">
+                                <span class="font-bold text-slate-800 text-sm">${pf.code}</span>
+                                <span class="text-xs text-slate-500 truncate">${pf.name}</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Stock PF actuel : ${formatNum(pf.stock)} ${pf.unit}</p>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <input type="number" min="0" step="1" value="${plannedQty}"
-                                oninput="updateMrpPlanQty('${pf.code}', this.value)"
-                                class="w-28 text-right font-bold text-base text-indigo-700 bg-white border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 rounded-lg px-3 py-1.5 outline-none">
-                            <span class="text-xs font-medium text-slate-500 w-10">${pf.unit}</span>
+                        <div class="flex items-center gap-2 shrink-0">
+                            <input type="number" min="0" step="1" value="${val}"
+                                oninput="updateMrpQty('${pf.code}', this.value)"
+                                class="w-28 text-right font-bold text-indigo-700 bg-white border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 rounded-lg px-3 py-1.5 outline-none">
+                            <span class="text-xs text-slate-500 w-10">${pf.unit}</span>
                         </div>
                     </div>
                 `;
             }).join('');
         }
 
-        function updateMrpPlanQty(pfCode, val) {
+        function updateMrpQty(code, val) {
             const qty = Math.max(0, parseFloat(val) || 0);
-            appState.mrpPlan[pfCode] = qty;
+            appState.mrpPlan[code] = qty;
             saveState();
             calculateMRP();
         }
@@ -1307,282 +1349,267 @@
             const useSfStock = document.getElementById('mrp-use-sf-stock').checked;
             const { rawRequirements, sfDetails } = explodeRequirements(appState.mrpPlan, useSfStock);
 
-            // Afficher le tableau des Semi-Finis si applicable
+            // 1. Afficher le bilan des Semi-Finis si applicable
             const sfCard = document.getElementById('mrp-sf-summary-card');
-            const sfBody = document.getElementById('mrp-sf-table-body');
+            const sfTbody = document.getElementById('mrp-sf-table-body');
             if (sfDetails.length > 0) {
                 sfCard.classList.remove('hidden');
-                sfBody.innerHTML = sfDetails.map(sf => `
+                sfTbody.innerHTML = sfDetails.map(sf => `
                     <tr>
-                        <td class="py-2 font-semibold text-slate-800">${sf.code}</td>
+                        <td class="py-2 font-semibold text-slate-700">${sf.code} <span class="font-normal text-slate-400">(${sf.name})</span></td>
                         <td class="py-2 text-right font-medium">${formatNum(sf.grossDemand)} ${sf.unit}</td>
-                        <td class="py-2 text-right text-slate-500">${formatNum(sf.stockAvailable)}</td>
-                        <td class="py-2 text-right font-bold ${sf.netToProduce > 0 ? 'text-sky-600' : 'text-emerald-600'}">${formatNum(sf.netToProduce)}</td>
+                        <td class="py-2 text-right text-sky-600">${formatNum(sf.stockAvailable)} ${sf.unit}</td>
+                        <td class="py-2 text-right font-bold ${sf.netToProduce > 0 ? 'text-amber-600' : 'text-emerald-600'}">${formatNum(sf.netToProduce)} ${sf.unit}</td>
                     </tr>
                 `).join('');
             } else {
                 sfCard.classList.add('hidden');
             }
 
-            // Construire le tableau des besoins bruts/nets en MP et EMB
-            const tbody = document.getElementById('mrp-results-body');
-            const reqCodes = Object.keys(rawRequirements);
+            // 2. Afficher les KPIs MRP
+            let totalPlannedUnits = 0;
+            let totalPlannedValue = 0;
+            Object.entries(appState.mrpPlan).forEach(([code, qty]) => {
+                const item = getItemByCode(code);
+                if (item && qty > 0) {
+                    totalPlannedUnits += qty;
+                    totalPlannedValue += qty * (item.price || 0);
+                }
+            });
 
-            let hasShortage = false;
-            let totalCostNeeded = 0;
-            let totalUnitsPlanned = Object.values(appState.mrpPlan).reduce((a, b) => a + (b || 0), 0);
+            let totalMaterialCost = 0;
+            let shortagesCount = 0;
 
-            if (reqCodes.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" class="py-10 text-center text-slate-400">Saisissez une quantité de production à gauche pour calculer les besoins matières.</td></tr>`;
-                document.getElementById('mrp-status-badge').className = "px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600";
-                document.getElementById('mrp-status-badge').textContent = "En attente de plan";
-                document.getElementById('mrp-kpi-bar').innerHTML = '';
-                return;
-            }
-
-            const rowsHtml = reqCodes.map(code => {
+            const rows = Object.entries(rawRequirements).map(([code, needed]) => {
                 const item = getItemByCode(code);
                 if (!item) return '';
-                const needed = rawRequirements[code];
-                const stock = item.stock;
-                const diff = stock - needed;
+                const diff = item.stock - needed;
                 const isShort = diff < -1e-6;
-                if (isShort) hasShortage = true;
-
-                totalCostNeeded += needed * (item.price || 0);
+                if (isShort) shortagesCount++;
+                totalMaterialCost += needed * (item.price || 0);
 
                 return `
-                    <tr class="${isShort ? 'bg-rose-50/60' : 'hover:bg-slate-50'} transition">
+                    <tr class="${isShort ? 'bg-rose-50/60' : 'hover:bg-slate-50'}">
                         <td class="py-3 px-3">
-                            <span class="font-bold text-slate-800">${item.code}</span>
-                            <span class="text-xs text-slate-500 block sm:inline sm:ml-1.5">${item.name}</span>
+                            <div class="font-bold text-slate-800">${item.code}</div>
+                            <div class="text-xs text-slate-500">${item.name}</div>
                         </td>
                         <td class="py-3 px-3">${getCategoryBadge(item.category)}</td>
                         <td class="py-3 px-3 text-right font-bold text-slate-800">${formatNum(needed, 3)} <span class="text-xs font-normal text-slate-500">${item.unit}</span></td>
-                        <td class="py-3 px-3 text-right text-slate-600">${formatNum(stock, 3)} <span class="text-xs text-slate-400">${item.unit}</span></td>
+                        <td class="py-3 px-3 text-right text-slate-600">${formatNum(item.stock, 3)} <span class="text-xs text-slate-400">${item.unit}</span></td>
                         <td class="py-3 px-3 text-right font-bold ${isShort ? 'text-rose-600' : 'text-emerald-600'}">
-                            ${diff >= 0 ? '+' : ''}${formatNum(diff, 3)} <span class="text-xs font-normal">${item.unit}</span>
+                            ${diff >= 0 ? '+' : ''}${formatNum(diff, 3)} ${item.unit}
                         </td>
                         <td class="py-3 px-3 text-center">
                             ${isShort 
-                                ? `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800"><i class="fa-solid fa-xmark"></i> Manquant</span>`
-                                : `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800"><i class="fa-solid fa-check"></i> OK</span>`
-                            }
+                                ? '<span class="px-2 py-0.5 text-xs font-bold rounded-full bg-rose-100 text-rose-700">Rupture</span>' 
+                                : '<span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-700">Disponible</span>'}
                         </td>
                     </tr>
                 `;
-            }).join('');
+            });
 
-            tbody.innerHTML = rowsHtml;
-
-            // Badge global
             const statusBadge = document.getElementById('mrp-status-badge');
-            if (hasShortage) {
-                statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1.5";
-                statusBadge.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Rupture de Stock Détectée`;
+            if (totalPlannedUnits === 0) {
+                statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600";
+                statusBadge.textContent = "Aucune production saisie";
+            } else if (shortagesCount > 0) {
+                statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800";
+                statusBadge.textContent = `${shortagesCount} matière(s) en rupture`;
             } else {
-                statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1.5";
-                statusBadge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Stock Suffisant (100% Réalisable)`;
+                statusBadge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800";
+                statusBadge.textContent = "Production 100% Réalisable";
             }
 
-            // Barre KPI MRP
             document.getElementById('mrp-kpi-bar').innerHTML = `
                 <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
-                    <span class="text-[11px] font-semibold uppercase text-slate-400 block">Total Unités Planifiées</span>
-                    <span class="text-lg font-bold text-indigo-700">${formatNum(totalUnitsPlanned, 0)} <span class="text-xs font-normal text-slate-500">PF</span></span>
+                    <span class="text-[11px] font-semibold text-slate-400 uppercase block">Total à Produire</span>
+                    <span class="text-lg font-bold text-slate-800">${formatNum(totalPlannedUnits, 0)} <span class="text-xs font-normal">unités</span></span>
                 </div>
                 <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
-                    <span class="text-[11px] font-semibold uppercase text-slate-400 block">Références Mobilisées</span>
-                    <span class="text-lg font-bold text-slate-800">${reqCodes.length} <span class="text-xs font-normal text-slate-500">comp.</span></span>
+                    <span class="text-[11px] font-semibold text-slate-400 uppercase block">Coût Matières Estimé</span>
+                    <span class="text-lg font-bold text-amber-600">${formatNum(totalMaterialCost, 2)} €</span>
                 </div>
                 <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80">
-                    <span class="text-[11px] font-semibold uppercase text-slate-400 block">Coût Matières Estimé</span>
-                    <span class="text-lg font-bold text-slate-800">${formatNum(totalCostNeeded, 2)} €</span>
+                    <span class="text-[11px] font-semibold text-slate-400 uppercase block">Valeur Production</span>
+                    <span class="text-lg font-bold text-indigo-600">${formatNum(totalPlannedValue, 2)} €</span>
                 </div>
             `;
+
+            const tbody = document.getElementById('mrp-results-body');
+            if (rows.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-slate-400">Saisissez une quantité à produire à gauche pour voir les besoins en matières et emballages.</td></tr>`;
+            } else {
+                tbody.innerHTML = rows.join('');
+            }
         }
 
         // =========================================================================
-        // 8. ONGLET 4 : OPTIMISATION SOUS CONTRAINTES (STOCKS -> MEILLEURE COMBINAISON)
+        // 8. ONGLET 4 : SOLVEUR D'OPTIMISATION (STOCKS -> MEILLEURE COMBINAISON)
         // =========================================================================
         function renderOptProductList() {
             const container = document.getElementById('opt-products-list');
             const pfs = appState.items.filter(i => i.category === 'PF');
 
-            container.innerHTML = pfs.map(pf => {
-                return `
-                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-200/90 space-y-2">
-                        <div class="flex items-center justify-between">
-                            <label class="flex items-center gap-2 cursor-pointer">
-                                <input type="checkbox" class="opt-pf-check rounded text-indigo-600 focus:ring-indigo-500" data-code="${pf.code}" checked>
-                                <span class="font-bold text-sm text-slate-800">${pf.code}</span>
-                                <span class="text-xs text-slate-500 truncate max-w-[140px]">${pf.name}</span>
-                            </label>
-                            <span class="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">${formatNum(pf.price || 1)} €/u</span>
-                        </div>
-                        <div class="grid grid-cols-3 gap-2 pt-1">
-                            <div>
-                                <label class="block text-[10px] text-slate-500 uppercase">Min requis</label>
-                                <input type="number" min="0" step="1" value="0" data-code="${pf.code}" class="opt-pf-min w-full text-xs border border-slate-300 rounded px-2 py-1 bg-white">
-                            </div>
-                            <div>
-                                <label class="block text-[10px] text-slate-500 uppercase">Max souhaité</label>
-                                <input type="number" min="0" step="1" placeholder="Illimité" data-code="${pf.code}" class="opt-pf-max w-full text-xs border border-slate-300 rounded px-2 py-1 bg-white">
-                            </div>
-                            <div>
-                                <label class="block text-[10px] text-slate-500 uppercase">Poids / Priorité</label>
-                                <input type="number" min="0.1" step="0.1" value="1" data-code="${pf.code}" class="opt-pf-weight w-full text-xs border border-slate-300 rounded px-2 py-1 bg-white">
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        /**
-         * Solveur d'optimisation exact en nombres entiers (Branch-and-Bound / Exploration guidée)
-         * Trouve le vecteur entier X = [x_1, x_2, ..., x_n] maximisant la fonction objectif
-         * sous contraintes linéaires de stocks de MP, EMB et SF.
-         */
-        function runOptimization() {
-            const objectiveType = document.getElementById('opt-objective').value;
-            const useSfStock = document.getElementById('opt-use-sf-stock').checked;
-
-            // Récupérer les produits candidats sélectionnés
-            const candidates = [];
-            document.querySelectorAll('.opt-pf-check').forEach(chk => {
-                if (chk.checked) {
-                    const code = chk.dataset.code;
-                    const item = getItemByCode(code);
-                    const minVal = parseInt(document.querySelector(`.opt-pf-min[data-code="${code}"]`).value) || 0;
-                    const maxRaw = document.querySelector(`.opt-pf-max[data-code="${code}"]`).value;
-                    const maxVal = maxRaw === '' ? Infinity : (parseInt(maxRaw) || 0);
-                    const weightVal = parseFloat(document.querySelector(`.opt-pf-weight[data-code="${code}"]`).value) || 1;
-
-                    candidates.push({
-                        code,
-                        item,
-                        min: minVal,
-                        max: maxVal,
-                        weight: weightVal,
-                        price: item.price || 1
-                    });
-                }
-            });
-
-            if (candidates.length === 0) {
-                showToast("Sélectionnez au moins un Produit Fini à optimiser.", "warning");
+            if (pfs.length === 0) {
+                container.innerHTML = `<p class="text-xs text-slate-400">Aucun Produit Fini défini.</p>`;
                 return;
             }
 
-            // Construire les coefficients de consommation unitaire totalement éclatés pour chaque PF candidat
-            // Attention : si useSfStock est activé, le stock de SF agit comme un "crédit" avant de consommer les MP du SF.
-            // Pour modéliser exactement cela :
-            // Chaque unité de PF_j consomme directRaw[j][r] + directSf[j][sf] * sfRaw[sf][r]
-            // Sauf que pour chaque SF, jusqu'à stock[sf] unités de SF utilisées ne consomment pas sfRaw[sf][r].
-            
-            // Calculer d'abord la borne supérieure théorique de chaque produit candidat
-            candidates.forEach(cand => {
-                let upperBound = cand.max;
-                // Tester la faisabilité unitaire max en supposant les autres produits à 0
+            container.innerHTML = pfs.map(pf => `
+                <div class="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-2" data-opt-code="${pf.code}">
+                    <div class="flex items-center justify-between">
+                        <label class="flex items-center gap-2 font-bold text-sm text-slate-800 cursor-pointer">
+                            <input type="checkbox" class="opt-include-cb rounded text-indigo-600 focus:ring-indigo-500" data-code="${pf.code}" checked>
+                            <span>${pf.code}</span>
+                            <span class="font-normal text-xs text-slate-500 truncate max-w-[140px]">${pf.name}</span>
+                        </label>
+                        <span class="text-xs font-semibold text-indigo-600">${formatNum(pf.price || 0)} €/u</span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 text-xs">
+                        <div>
+                            <span class="text-[10px] text-slate-400 block">Min</span>
+                            <input type="number" min="0" step="1" value="0" class="opt-min-input w-full border border-slate-300 rounded px-2 py-1 bg-white" data-code="${pf.code}">
+                        </div>
+                        <div>
+                            <span class="text-[10px] text-slate-400 block">Max (vide=∞)</span>
+                            <input type="number" min="0" step="1" placeholder="∞" class="opt-max-input w-full border border-slate-300 rounded px-2 py-1 bg-white" data-code="${pf.code}">
+                        </div>
+                        <div>
+                            <span class="text-[10px] text-slate-400 block">Poids / Priorité</span>
+                            <input type="number" min="1" step="1" value="1" class="opt-weight-input w-full border border-slate-300 rounded px-2 py-1 bg-white" data-code="${pf.code}">
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function runOptimization() {
+            const objective = document.getElementById('opt-objective').value;
+            const useSfStock = document.getElementById('opt-use-sf-stock').checked;
+
+            const candidates = [];
+            document.querySelectorAll('.opt-include-cb').forEach(cb => {
+                if (!cb.checked) return;
+                const code = cb.dataset.code;
+                const item = getItemByCode(code);
+                if (!item) return;
+
+                const minVal = Math.max(0, parseInt(document.querySelector(`.opt-min-input[data-code="${code}"]`).value) || 0);
+                const maxRaw = document.querySelector(`.opt-max-input[data-code="${code}"]`).value;
+                const maxVal = maxRaw === '' ? Infinity : Math.max(minVal, parseInt(maxRaw) || 0);
+                const weight = Math.max(1, parseFloat(document.querySelector(`.opt-weight-input[data-code="${code}"]`).value) || 1);
+
+                candidates.push({
+                    code,
+                    item,
+                    min: minVal,
+                    max: maxVal,
+                    weight,
+                    price: item.price || 0
+                });
+            });
+
+            if (candidates.length === 0) {
+                showToast("Sélectionnez au moins un produit fini à optimiser.", "warning");
+                return;
+            }
+
+            // Calculer la borne supérieure individuelle de chaque candidat
+            candidates.forEach(c => {
+                let maxPossible = c.max;
+                // Tester par recherche binaire la quantité max produisible seule
                 let low = 0, high = 100000;
                 while (low < high) {
-                    const mid = Math.ceil((low + high) / 2);
-                    const plan = { [cand.code]: mid };
-                    if (isPlanFeasible(plan, useSfStock)) {
+                    const mid = Math.floor((low + high + 1) / 2);
+                    if (isPlanFeasible({ [c.code]: mid }, useSfStock)) {
                         low = mid;
                     } else {
                         high = mid - 1;
                     }
                 }
-                cand.upperBound = Math.min(upperBound, low);
+                c.upperBound = Math.min(maxPossible, low);
             });
 
-            // Vérifier si les minimums demandés sont réalisables
+            // Vérifier si les minimums sont réalisables
             const minPlan = {};
             candidates.forEach(c => minPlan[c.code] = c.min);
             if (!isPlanFeasible(minPlan, useSfStock)) {
-                showToast("Les quantités minimums exigées dépassent les stocks disponibles !", "error");
                 renderOptResults(minPlan, false, useSfStock);
+                showToast("Stocks insuffisants pour atteindre les quantités minimums demandées.", "error");
                 return;
             }
 
-            // Fonction d'évaluation de l'objectif pour une combinaison donnée
-            function evaluateObjective(countsArray) {
+            // Fonction d'évaluation de score selon l'objectif choisi
+            const evaluateScore = (counts) => {
                 let totalUnits = 0;
                 let totalValue = 0;
                 let weightedSum = 0;
-                let minVal = Infinity;
+                let minCount = Infinity;
 
-                for (let i = 0; i < candidates.length; i++) {
-                    const q = countsArray[i];
+                candidates.forEach((c, idx) => {
+                    const q = counts[idx];
                     totalUnits += q;
-                    totalValue += q * candidates[i].price;
-                    weightedSum += q * candidates[i].weight;
-                    if (q < minVal) minVal = q;
-                }
+                    totalValue += q * c.price;
+                    weightedSum += q * c.weight;
+                    if (q < minCount) minCount = q;
+                });
 
-                if (objectiveType === 'MAX_UNITS') {
-                    // Maximiser le total d'unités, puis départager par la valeur
-                    return totalUnits * 100000 + totalValue;
-                } else if (objectiveType === 'MAX_VALUE') {
-                    return totalValue * 1000 + totalUnits;
-                } else if (objectiveType === 'PRIORITY_WEIGHTED') {
-                    return weightedSum * 10000 + totalUnits;
-                } else if (objectiveType === 'BALANCED') {
-                    // Maximiser le minimum produit entre tous les candidats (équilibrage Max-Min), puis le total
-                    return minVal * 1000000 + totalUnits * 100 + totalValue;
+                if (objective === 'MAX_UNITS') return totalUnits * 1000 + totalValue * 0.01;
+                if (objective === 'MAX_VALUE') return totalValue * 1000 + totalUnits * 0.01;
+                if (objective === 'PRIORITY_WEIGHTED') return weightedSum * 1000 + totalUnits * 0.01;
+                if (objective === 'BALANCED') {
+                    // Maximiser le minimum produit entre tous les candidats, puis le total
+                    return (minCount === Infinity ? 0 : minCount) * 100000 + totalUnits;
                 }
                 return totalUnits;
-            }
+            };
 
-            // Algorithme Branch-and-Bound rapide avec élagage et heuristique gloutonne initiale
-            let bestScore = -1;
+            // Solveur exact Branch & Bound borné + heuristique gloutonne initiale
             let bestCounts = candidates.map(c => c.min);
-            bestScore = evaluateObjective(bestCounts);
+            let bestScore = evaluateScore(bestCounts);
 
-            // Heuristique gloutonne pour obtenir une excellente borne inférieure immédiatement
-            let greedyCounts = [...bestCounts];
+            // Passe gloutonne initiale pour avoir une excellente borne inférieure
             let improved = true;
             while (improved) {
                 improved = false;
-                let bestStepIdx = -1;
-                let bestStepScore = bestScore;
+                let bestNextIdx = -1;
+                let bestNextScore = bestScore;
 
                 for (let i = 0; i < candidates.length; i++) {
-                    if (greedyCounts[i] + 1 <= candidates[i].upperBound) {
-                        greedyCounts[i]++;
-                        const plan = {};
-                        candidates.forEach((c, idx) => plan[c.code] = greedyCounts[idx]);
-                        if (isPlanFeasible(plan, useSfStock)) {
-                            const sc = evaluateObjective(greedyCounts);
-                            if (sc > bestStepScore) {
-                                bestStepScore = sc;
-                                bestStepIdx = i;
+                    if (bestCounts[i] + 1 <= candidates[i].upperBound) {
+                        const testCounts = [...bestCounts];
+                        testCounts[i]++;
+                        const testPlan = {};
+                        candidates.forEach((c, idx) => testPlan[c.code] = testCounts[idx]);
+
+                        if (isPlanFeasible(testPlan, useSfStock)) {
+                            const sc = evaluateScore(testCounts);
+                            if (sc > bestNextScore) {
+                                bestNextScore = sc;
+                                bestNextIdx = i;
                             }
                         }
-                        greedyCounts[i]--;
                     }
                 }
-                if (bestStepIdx !== -1) {
-                    greedyCounts[bestStepIdx]++;
-                    bestScore = bestStepScore;
-                    bestCounts = [...greedyCounts];
+
+                if (bestNextIdx !== -1) {
+                    bestCounts[bestNextIdx]++;
+                    bestScore = bestNextScore;
                     improved = true;
                 }
             }
 
-            // Exploration exacte Branch & Bound (sécurisée par un compteur d'itérations max pour fluidité instantanée)
-            let iterations = 0;
-            const MAX_ITERATIONS = 45000;
+            // Exploration Branch & Bound limitée en itérations pour affiner la combinaison entière
             const n = candidates.length;
-            const currentCounts = new Array(n).fill(0);
+            let iterations = 0;
+            const MAX_ITERATIONS = 4000;
+            const currentCounts = candidates.map(c => c.min);
 
             function branchAndBound(idx) {
                 if (iterations++ > MAX_ITERATIONS) return;
-
                 if (idx === n) {
-                    const sc = evaluateObjective(currentCounts);
+                    const sc = evaluateScore(currentCounts);
                     if (sc > bestScore) {
                         bestScore = sc;
                         bestCounts = [...currentCounts];
@@ -1590,27 +1617,16 @@
                     return;
                 }
 
-                // Calculer la borne supérieure optimiste (Relaxation) pour élaguer les branches inutiles
-                const optimisticCounts = [...currentCounts];
-                for (let k = idx; k < n; k++) {
-                    optimisticCounts[k] = candidates[k].upperBound;
-                }
-                if (evaluateObjective(optimisticCounts) <= bestScore) {
-                    return; // Élagage ! Impossible de battre bestScore dans cette branche
-                }
-
-                // Déterminer le max local pour candidates[idx] sachant currentCounts[0..idx-1]
+                // Trouver le max réalisable pour candidates[idx] sachant currentCounts[0..idx-1]
                 let localLow = candidates[idx].min;
                 let localHigh = candidates[idx].upperBound;
-
-                // Recherche binaire du max réalisable à ce niveau
-                const testPlan = {};
-                for (let k = 0; k < idx; k++) testPlan[candidates[k].code] = currentCounts[k];
-                for (let k = idx + 1; k < n; k++) testPlan[candidates[k].code] = candidates[k].min;
-
                 while (localLow < localHigh) {
-                    const mid = Math.ceil((localLow + localHigh) / 2);
+                    const mid = Math.floor((localLow + localHigh + 1) / 2);
+                    const testPlan = {};
+                    for (let k = 0; k < idx; k++) testPlan[candidates[k].code] = currentCounts[k];
                     testPlan[candidates[idx].code] = mid;
+                    for (let k = idx + 1; k < n; k++) testPlan[candidates[k].code] = candidates[k].min;
+
                     if (isPlanFeasible(testPlan, useSfStock)) {
                         localLow = mid;
                     } else {
@@ -1619,7 +1635,9 @@
                 }
 
                 // Explorer du plus grand au plus petit pour trouver vite l'optimum
-                for (let val = localLow; val >= candidates[idx].min; val--) {
+                // Limiter la plage explorée autour de localLow pour éviter tout blocage sur de grands stocks
+                const minExplore = Math.max(candidates[idx].min, localLow - 250);
+                for (let val = localLow; val >= minExplore; val--) {
                     currentCounts[idx] = val;
                     branchAndBound(idx + 1);
                     if (iterations > MAX_ITERATIONS) break;
@@ -1671,17 +1689,20 @@
 
             const cardsHtml = Object.entries(plan).map(([code, qty]) => {
                 const item = getItemByCode(code);
-                totalUnits += qty;
-                totalRevenue += qty * (item.price || 0);
+                if (!item) return '';
+                const safeQty = Number(qty) || 0;
+                const unitPrice = Number(item.price) || 0;
+                totalUnits += safeQty;
+                totalRevenue += safeQty * unitPrice;
                 return `
-                    <div class="p-4 rounded-xl border ${qty > 0 ? 'bg-indigo-50/60 border-indigo-200' : 'bg-slate-50 border-slate-200'} flex flex-col justify-between">
+                    <div class="p-4 rounded-xl border ${safeQty > 0 ? 'bg-indigo-50/60 border-indigo-200' : 'bg-slate-50 border-slate-200'} flex flex-col justify-between">
                         <div class="flex items-center justify-between">
                             <span class="font-bold text-slate-800 text-base">${code}</span>
-                            <span class="text-xs text-slate-500">${formatNum(item.price || 0)} €/u</span>
+                            <span class="text-xs text-slate-500">${formatNum(unitPrice)} €/u</span>
                         </div>
                         <p class="text-xs text-slate-500 truncate mt-0.5">${item.name}</p>
                         <div class="mt-3 pt-2 border-t border-slate-200/60 flex items-baseline justify-between">
-                            <span class="text-2xl font-extrabold ${qty > 0 ? 'text-indigo-700' : 'text-slate-400'}">${formatNum(qty, 0)}</span>
+                            <span class="text-2xl font-extrabold ${safeQty > 0 ? 'text-indigo-700' : 'text-slate-400'}">${formatNum(safeQty, 0)}</span>
                             <span class="text-xs font-medium text-slate-500">${item.unit}(s)</span>
                         </div>
                     </div>
