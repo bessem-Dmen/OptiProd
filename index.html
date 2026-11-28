@@ -1367,14 +1367,80 @@
             return total;
         }
 
+        function startEditBomLine(index) {
+            const parentCode = appState.selectedBomProduct;
+            if (!parentCode || !appState.boms[parentCode] || !appState.boms[parentCode][index]) return;
+            const line = appState.boms[parentCode][index];
+
+            const compSelect = document.getElementById('bom-comp-select');
+            const qtyInput = document.getElementById('bom-qty-input');
+            const scrapInput = document.getElementById('bom-scrap-input');
+            const editIdxInput = document.getElementById('bom-edit-index');
+            const submitBtn = document.getElementById('bom-submit-btn');
+            const cancelBtn = document.getElementById('bom-cancel-edit-btn');
+
+            if (compSelect) compSelect.value = line.itemCode;
+            if (qtyInput) qtyInput.value = line.qty;
+            if (scrapInput) scrapInput.value = line.scrapRate ?? 0;
+            if (editIdxInput) editIdxInput.value = String(index);
+            if (submitBtn) {
+                submitBtn.innerHTML = `<i class="fa-solid fa-check"></i><span>Modifier</span>`;
+                submitBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
+                submitBtn.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
+            }
+            if (cancelBtn) cancelBtn.classList.remove('hidden');
+            if (qtyInput) {
+                qtyInput.focus();
+                qtyInput.select();
+            }
+        }
+
+        function cancelEditBomLine() {
+            const editIdxInput = document.getElementById('bom-edit-index');
+            const qtyInput = document.getElementById('bom-qty-input');
+            const scrapInput = document.getElementById('bom-scrap-input');
+            const submitBtn = document.getElementById('bom-submit-btn');
+            const cancelBtn = document.getElementById('bom-cancel-edit-btn');
+
+            if (editIdxInput) editIdxInput.value = '';
+            if (qtyInput) qtyInput.value = '';
+            if (scrapInput) scrapInput.value = '0';
+            if (submitBtn) {
+                submitBtn.innerHTML = `<i class="fa-solid fa-plus"></i><span>Ajouter</span>`;
+                submitBtn.classList.remove('bg-emerald-600', 'hover:bg-emerald-700');
+                submitBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+            }
+            if (cancelBtn) cancelBtn.classList.add('hidden');
+        }
+
+        function inlineUpdateBomLine(parentCode, index, field, rawVal) {
+            if (!appState.boms[parentCode] || !appState.boms[parentCode][index]) return;
+            const parsed = parseFrenchNumber(rawVal);
+            if (field === 'qty') {
+                if (isNaN(parsed) || parsed <= 0) {
+                    showToast("La quantité doit être supérieure à 0.", "error");
+                    renderBomEditor();
+                    return;
+                }
+                appState.boms[parentCode][index].qty = parsed;
+            } else if (field === 'scrapRate') {
+                const scrap = isNaN(parsed) || parsed < 0 ? 0 : Math.min(99, parsed);
+                appState.boms[parentCode][index].scrapRate = scrap;
+            }
+            saveState();
+            renderBomEditor();
+            showToast(`Recette de ${parentCode} mise à jour.`, "success");
+        }
+
         function addBomLine(event) {
             event.preventDefault();
             const parentCode = appState.selectedBomProduct;
             if (!parentCode) return;
 
             const itemCode = document.getElementById('bom-comp-select').value;
-            const qty = parseFloat(document.getElementById('bom-qty-input').value);
-            const scrapRate = parseFloat(document.getElementById('bom-scrap-input').value) || 0;
+            const qty = parseFrenchNumber(document.getElementById('bom-qty-input').value);
+            const scrapRate = parseFrenchNumber(document.getElementById('bom-scrap-input').value) || 0;
+            const editIdxRaw = document.getElementById('bom-edit-index')?.value;
 
             if (!itemCode || isNaN(qty) || qty <= 0) {
                 showToast("Veuillez saisir une quantité strictement positive.", "error");
@@ -1382,6 +1448,18 @@
             }
 
             if (!appState.boms[parentCode]) appState.boms[parentCode] = [];
+
+            if (editIdxRaw !== '' && editIdxRaw !== undefined) {
+                const idx = parseInt(editIdxRaw, 10);
+                if (!isNaN(idx) && appState.boms[parentCode][idx]) {
+                    appState.boms[parentCode][idx] = { itemCode, qty, scrapRate };
+                    saveState();
+                    renderBomTab();
+                    showToast(`Ligne ${itemCode} modifiée dans la recette de ${parentCode}.`, "success");
+                    return;
+                }
+            }
+
             const existingLine = appState.boms[parentCode].find(l => l.itemCode === itemCode);
             if (existingLine) {
                 existingLine.qty = qty;
